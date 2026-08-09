@@ -29,6 +29,7 @@ static const CharString sVFXList[] = {
 
 MetroFileSystem::MetroFileSystem()
     : mCurrentVfxIdx(0)
+    , mGameVersion(kVFXVersionUnknown)
 {
 }
 MetroFileSystem::~MetroFileSystem() {
@@ -44,11 +45,17 @@ bool MetroFileSystem::InitFromGameFolder(const fs::path& gameFolder) {
     for (const CharString& s : sVFXList) {
         LogPrint(LogLevel::Info, "Adding (" + s + ") to FS");
 
+        const bool mandatory = (s == sVFXList[0]);
+
         fs::path vfxPath = gameFolder / s;
-        result = this->AddVFX(vfxPath);
-        if (!result) {
+        const bool added = this->AddVFX(vfxPath);
+        if (!added) {
             LogPrint(LogLevel::Info, "Failed to add (" + s + ") to FS");
-            break;
+            if (mandatory) {
+                break;
+            }
+        } else if (mandatory) {
+            result = true;
         }
     }
 
@@ -65,6 +72,7 @@ void MetroFileSystem::Shutdown() {
     std::for_each(mLoadedVFX.begin(), mLoadedVFX.end(), [](VFXReader* v) { delete v; });
     mLoadedVFX.clear();
     mEntries.clear();
+    mGameVersion = kVFXVersionUnknown;
 
     // Add root
     mEntries.push_back({ kEmptyString, 0, kInvalidHandle, kInvalidValue, kInvalidValue, kInvalidValue, kInvalidValue });
@@ -112,6 +120,10 @@ const CharString& MetroFileSystem::GetName(const MyHandle entry) const {
     } else {
         return kEmptyString;
     }
+}
+
+size_t MetroFileSystem::GetGameVersion() const {
+    return mGameVersion;
 }
 
 CharString MetroFileSystem::GetFullPath(const MyHandle entry) const {
@@ -353,6 +365,7 @@ bool MetroFileSystem::AddVFX(const fs::path& vfxPath) {
         VFXReader* vfxReader = new VFXReader();
         if (vfxReader->LoadFromFile(vfxPath)) {
             mCurrentVfxIdx = mLoadedVFX.size();
+            mGameVersion = vfxReader->GetVersion();
 
             const MetroFile& rootDir = vfxReader->GetRootFolder();
             this->MergeFolderRecursive(this->GetRootFolder(), rootDir, *vfxReader);

@@ -577,6 +577,11 @@ namespace MetroEX {
                     MyHandle textureFile = mfs.FindFile(texturePathBest);
 
                     if (textureFile == kInvalidHandle) {
+                        texturePathBest += "c";
+                        textureFile = mfs.FindFile(texturePathBest);
+                    }
+
+                    if (textureFile == kInvalidHandle) {
                         texturePathBest = texturePath + ".bin";
                         textureFile = mfs.FindFile(texturePathBest);
                     }

@@ -27,6 +27,7 @@ public:
     bool                    Empty() const;
     bool                    IsSingleVFX() const;
     const CharString&       GetVFXName(const size_t idx) const;
+    size_t                  GetGameVersion() const;
 
     MyHandle                GetRootFolder() const;
 
@@ -62,4 +63,5 @@ private:
     MyArray<VFXReader*>     mLoadedVFX;
     MyArray<MetroFSEntry>   mEntries;
     size_t                  mCurrentVfxIdx;
+    size_t                  mGameVersion;
 };
