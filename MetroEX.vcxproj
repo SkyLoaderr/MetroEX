@@ -70,7 +70,7 @@
       <AdditionalLibraryDirectories>$(SolutionDir)libs\fbx\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <PostBuildEvent>
-      <Command>xcopy /y $(SolutionDir)libs\fbx\lib\x64\*.dll $(SolutionDir)_build\</Command>
+      <Command>xcopy /y "$(SolutionDir)libs\fbx\lib\x64\*.dll" "$(SolutionDir)_build\"</Command>
       <Message>Copying FBX dlls</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -93,7 +93,7 @@
       <AdditionalLibraryDirectories>$(SolutionDir)libs\fbx\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <PostBuildEvent>
-      <Command>xcopy /y $(SolutionDir)libs\fbx\lib\x64\*.dll $(SolutionDir)_build\</Command>
+      <Command>xcopy /y "$(SolutionDir)libs\fbx\lib\x64\*.dll" "$(SolutionDir)_build\"</Command>
       <Message>Copying FBX dlls</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
