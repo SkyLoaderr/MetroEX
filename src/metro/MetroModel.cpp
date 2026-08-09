@@ -355,12 +355,20 @@ static void AddAnimTrackToScene(FbxScene* scene, const MetroMotion* motion, cons
     FbxTime keyTime;
     int keyIndex;
 
+    const size_t numFrames = std::max<size_t>(motion->GetNumFrames(), 1);
+
     for (size_t i = 0; i < skelNodes.size(); ++i) {
         FbxNode* boneNode = skelNodes[i];
 
         if (motion->IsBoneAnimated(i)) {
-            const auto& posCurve = motion->mBonesPositions[i];
-            const auto& rotCurve = motion->mBonesRotations[i];
+            const MetroCurve& posCurve = motion->GetBonePositionCurve(i);
+            const MetroCurve& rotCurve = motion->GetBoneRotationCurve(i);
+
+            const bool posIsConst = (posCurve.GetNumPoints() < 2);
+            const bool rotIsConst = (rotCurve.GetNumPoints() < 2);
+
+            const size_t numPosKeys = posIsConst ? 1 : numFrames;
+            const size_t numRotKeys = rotIsConst ? 1 : numFrames;
 
             boneNode->LclRotation.GetCurveNode(animLayer, true);
             boneNode->LclTranslation.GetCurveNode(animLayer, true);
@@ -375,29 +383,16 @@ static void AddAnimTrackToScene(FbxScene* scene, const MetroMotion* motion, cons
             offsetCurve[1]->KeyModifyBegin();
             offsetCurve[2]->KeyModifyBegin();
 
-            if (!posCurve.points.empty()) {
-                if (posCurve.points.size() == 1) {
-                    FbxVector4 fv = MetroVecToFbxVec(vec3(posCurve.points.front().value));
+            for (size_t f = 0; f < numPosKeys; ++f) {
+                const double t = scast<double>(f) / animFPS;
+                const FbxVector4 fv = MetroVecToFbxVec(motion->GetBonePositionAtTime(i, scast<float>(t)));
 
-                    keyTime.SetSecondDouble(0.0);
+                keyTime.SetSecondDouble(t);
 
-                    for (int k = 0; k < 3; ++k) {
-                        keyIndex = offsetCurve[k]->KeyAdd(keyTime);
-                        offsetCurve[k]->KeySetValue(keyIndex, scast<float>(fv[k]));
-                        offsetCurve[k]->KeySetInterpolation(keyIndex, FbxAnimCurveDef::eInterpolationLinear);
-                    }
-                } else {
-                    for (auto& pt : posCurve.points) {
-                        FbxVector4 fv = MetroVecToFbxVec(vec3(pt.value));
-
-                        keyTime.SetSecondDouble(scast<double>(pt.time));
-
-                        for (int k = 0; k < 3; ++k) {
-                            keyIndex = offsetCurve[k]->KeyAdd(keyTime);
-                            offsetCurve[k]->KeySetValue(keyIndex, scast<float>(fv[k]));
-                            offsetCurve[k]->KeySetInterpolation(keyIndex, FbxAnimCurveDef::eInterpolationCubic);
-                        }
-                    }
+                for (int k = 0; k < 3; ++k) {
+                    keyIndex = offsetCurve[k]->KeyAdd(keyTime);
+                    offsetCurve[k]->KeySetValue(keyIndex, scast<float>(fv[k]));
+                    offsetCurve[k]->KeySetInterpolation(keyIndex, FbxAnimCurveDef::eInterpolationLinear);
                 }
             }
 
@@ -415,35 +410,56 @@ static void AddAnimTrackToScene(FbxScene* scene, const MetroMotion* motion, cons
             rotationCurve[1]->KeyModifyBegin();
             rotationCurve[2]->KeyModifyBegin();
 
-            if (!rotCurve.points.empty()) {
-                if (rotCurve.points.size() == 1) {
-                    FbxVector4 fv = MetroRotToFbxRot(*rcast<const quat*>(&rotCurve.points.front().value));
+            for (size_t f = 0; f < numRotKeys; ++f) {
+                const double t = scast<double>(f) / animFPS;
+                const FbxVector4 fv = MetroRotToFbxRot(motion->GetBoneRotationAtTime(i, scast<float>(t)));
 
-                    keyTime.SetSecondDouble(0.0);
+                keyTime.SetSecondDouble(t);
 
-                    for (int k = 0; k < 3; ++k) {
-                        keyIndex = rotationCurve[k]->KeyAdd(keyTime);
-                        rotationCurve[k]->KeySetValue(keyIndex, scast<float>(fv[k]));
-                        rotationCurve[k]->KeySetInterpolation(keyIndex, FbxAnimCurveDef::eInterpolationLinear);
-                    }
-                } else {
-                    for (auto& pt : rotCurve.points) {
-                        FbxVector4 fv = MetroRotToFbxRot(*rcast<const quat*>(&pt.value));
-
-                        keyTime.SetSecondDouble(scast<double>(pt.time));
-
-                        for (int k = 0; k < 3; ++k) {
-                            keyIndex = rotationCurve[k]->KeyAdd(keyTime);
-                            rotationCurve[k]->KeySetValue(keyIndex, scast<float>(fv[k]));
-                            rotationCurve[k]->KeySetInterpolation(keyIndex, FbxAnimCurveDef::eInterpolationCubic);
-                        }
-                    }
+                for (int k = 0; k < 3; ++k) {
+                    keyIndex = rotationCurve[k]->KeyAdd(keyTime);
+                    rotationCurve[k]->KeySetValue(keyIndex, scast<float>(fv[k]));
+                    rotationCurve[k]->KeySetInterpolation(keyIndex, FbxAnimCurveDef::eInterpolationLinear);
                 }
             }
 
             rotationCurve[0]->KeyModifyEnd();
             rotationCurve[1]->KeyModifyEnd();
             rotationCurve[2]->KeyModifyEnd();
+        } else {
+            const FbxVector4 bindT = boneNode->LclTranslation.Get();
+            const FbxVector4 bindR = boneNode->LclRotation.Get();
+
+            keyTime.SetSecondDouble(0.0);
+
+            boneNode->LclRotation.GetCurveNode(animLayer, true);
+            boneNode->LclTranslation.GetCurveNode(animLayer, true);
+
+            FbxAnimCurve* offsetCurve[3] = {
+                boneNode->LclTranslation.GetCurve(animLayer, FBXSDK_CURVENODE_COMPONENT_X, true),
+                boneNode->LclTranslation.GetCurve(animLayer, FBXSDK_CURVENODE_COMPONENT_Y, true),
+                boneNode->LclTranslation.GetCurve(animLayer, FBXSDK_CURVENODE_COMPONENT_Z, true)
+            };
+
+            FbxAnimCurve* rotationCurve[3] = {
+                boneNode->LclRotation.GetCurve(animLayer, FBXSDK_CURVENODE_COMPONENT_X, true),
+                boneNode->LclRotation.GetCurve(animLayer, FBXSDK_CURVENODE_COMPONENT_Y, true),
+                boneNode->LclRotation.GetCurve(animLayer, FBXSDK_CURVENODE_COMPONENT_Z, true)
+            };
+
+            for (int k = 0; k < 3; ++k) {
+                offsetCurve[k]->KeyModifyBegin();
+                keyIndex = offsetCurve[k]->KeyAdd(keyTime);
+                offsetCurve[k]->KeySetValue(keyIndex, scast<float>(bindT[k]));
+                offsetCurve[k]->KeySetInterpolation(keyIndex, FbxAnimCurveDef::eInterpolationConstant);
+                offsetCurve[k]->KeyModifyEnd();
+
+                rotationCurve[k]->KeyModifyBegin();
+                keyIndex = rotationCurve[k]->KeyAdd(keyTime);
+                rotationCurve[k]->KeySetValue(keyIndex, scast<float>(bindR[k]));
+                rotationCurve[k]->KeySetInterpolation(keyIndex, FbxAnimCurveDef::eInterpolationConstant);
+                rotationCurve[k]->KeyModifyEnd();
+            }
         }
     }
 

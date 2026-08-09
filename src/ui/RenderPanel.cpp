@@ -717,22 +717,30 @@ namespace MetroEX {
 
     void RenderPanel::UpdateAnimation(const float dt) {
         if (mModel && mModel->IsAnimated() && mCurrentMotion) {
-            const size_t numBones = mCurrentMotion->GetNumBones();
+            const MetroSkeleton* skeleton = mModel->GetSkeleton();
+
+            const size_t numBones = std::min<size_t>(mCurrentMotion->GetNumBones(), skeleton->GetNumBones());
             const float animLen = mCurrentMotion->GetMotionTimeInSeconds();
+
+            if (animLen <= 0.0f) {
+                return;
+            }
 
             if (mAnimation->time >= animLen) {
                 mAnimation->time -= animLen;
             }
 
-            const size_t key = scast<size_t>(std::floorf((mAnimation->time / animLen) * mCurrentMotion->GetNumFrames()));
-
-            const MetroSkeleton* skeleton = mModel->GetSkeleton();
-
             for (size_t i = 0; i < numBones; ++i) {
                 const AnimBone& b = mAnimation->bones[i];
 
-                quat q = mCurrentMotion->GetBoneRotation(b.idx, key);
-                vec3 t = mCurrentMotion->GetBonePosition(b.idx, key);
+                quat q; vec3 t;
+                if (mCurrentMotion->IsBoneAnimated(b.idx)) {
+                    q = mCurrentMotion->GetBoneRotationAtTime(b.idx, mAnimation->time);
+                    t = mCurrentMotion->GetBonePositionAtTime(b.idx, mAnimation->time);
+                } else {
+                    q = skeleton->GetBoneRotation(b.idx);
+                    t = skeleton->GetBonePosition(b.idx);
+                }
 
                 mat4& m = mConstantBufferData->bones[b.idx];
 
