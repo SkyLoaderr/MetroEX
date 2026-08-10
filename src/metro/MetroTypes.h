@@ -107,11 +107,29 @@ struct MetroVertex {
     vec2        uv1;
 } PACKED_STRUCT_END;
 
+struct MetroVertexType {
+    enum VertexType : uint32_t {
+        Invalid     = 0,
+        Skin        = 1,
+        Static      = 2,
+        Level       = 3,
+        LevelLegacy = 4,
+
+        Particle    = 16,
+        Soft        = 17,
+        Impostor    = 19,
+
+        SkinNB      = 25
+    };
+};
+
 struct MetroMesh {
     size_t               version;
     bool                 skinned;
     bool                 isCollision;
     size_t               flags;
+    uint16_t             materialFlags0;
+    uint16_t             materialFlags1;
     float                vscale;
     AABBox               bbox;
     size_t               type;
@@ -154,14 +172,41 @@ struct VertexLevel {
     int16_t  uv1[2];
 } PACKED_STRUCT_END;
 
+PACKED_STRUCT_BEGIN
+struct VertexSoft {
+    vec3     pos;
+    uint32_t aux0;
+    vec3     normal;
+    int16_t  uv[2];
+} PACKED_STRUCT_END;
+
+PACKED_STRUCT_BEGIN
+struct VertexStaticShadow {
+    vec3     pos;
+    uint32_t padding;
+} PACKED_STRUCT_END;
+
+PACKED_STRUCT_BEGIN
+struct VertexSkinnedShadow {
+    int16_t  pos[4];
+    uint8_t  bones[4];
+    uint8_t  weights[4];
+} PACKED_STRUCT_END;
+
+static_assert(sizeof(VertexStatic) == 32);
+static_assert(sizeof(VertexSkinned) == 32);
+static_assert(sizeof(VertexLevel) == 32);
+static_assert(sizeof(VertexSoft) == 32);
+static_assert(sizeof(VertexStaticShadow) == 16);
+static_assert(sizeof(VertexSkinnedShadow) == 16);
+
 
 static vec4 DecodeNormal(const uint32_t n) {
-    const float div = 1.0f / 127.0f;
     const float div255 = 1.0f / 255.0f;
-    const float x = (((n & 0x00FF0000) >> 16) * div) - 1.0f;
-    const float y = (((n & 0x0000FF00) >>  8) * div) - 1.0f;
-    const float z = (((n & 0x000000FF) >>  0) * div) - 1.0f;
-    const float w = (((n & 0xFF000000) >> 24) * div255); // vao
+    const float x = (scast<float>((n & 0x00FF0000) >> 16) * div255) * 2.0f - 1.0f;
+    const float y = (scast<float>((n & 0x0000FF00) >>  8) * div255) * 2.0f - 1.0f;
+    const float z = (scast<float>((n & 0x000000FF) >>  0) * div255) * 2.0f - 1.0f;
+    const float w = (scast<float>((n & 0xFF000000) >> 24) * div255); // vao
 
     return vec4(x, y, z, w);
 }
@@ -223,16 +268,57 @@ inline MetroVertex ConvertVertex<VertexSkinned>(const VertexSkinned& v) {
 
 template <>
 inline MetroVertex ConvertVertex<VertexLevel>(const VertexLevel& v) {
-    const float uvDequant = 1.0f / 1024.0f;
+    const float kUV0Dequant = 1.0f / 1024.0f;
+    const float kUV1Dequant = 1.0f / 32767.0f;
 
     MetroVertex result = {};
 
     result.pos = MetroSwizzle(v.pos);
     result.normal = MetroSwizzle(DecodeNormal(v.normal));
-    result.uv0 = vec2(scast<float>(v.uv0[0]) * uvDequant,
-                      scast<float>(v.uv0[1]) * uvDequant);
-    result.uv1 = vec2(scast<float>(v.uv1[0]) * uvDequant,
-                      scast<float>(v.uv1[1]) * uvDequant);
+    result.uv0 = vec2(scast<float>(v.uv0[0]) * kUV0Dequant,
+                      scast<float>(v.uv0[1]) * kUV0Dequant);
+    result.uv1 = vec2(scast<float>(v.uv1[0]) * kUV1Dequant,
+                      scast<float>(v.uv1[1]) * kUV1Dequant);
+    return result;
+}
+
+template <>
+inline MetroVertex ConvertVertex<VertexSoft>(const VertexSoft& v) {
+    const float uvDequant = 1.0f / 2048.0f;
+
+    MetroVertex result = {};
+
+    result.pos = MetroSwizzle(v.pos);
+    result.normal = MetroSwizzle(vec4(v.normal, 0.0f));
+    result.uv0 = vec2(scast<float>(v.uv[0]) * uvDequant,
+                      scast<float>(v.uv[1]) * uvDequant);
+    return result;
+}
+
+template <>
+inline MetroVertex ConvertVertex<VertexStaticShadow>(const VertexStaticShadow& v) {
+    MetroVertex result = {};
+    result.pos = MetroSwizzle(v.pos);
+    return result;
+}
+
+template <>
+inline MetroVertex ConvertVertex<VertexSkinnedShadow>(const VertexSkinnedShadow& v) {
+    const float posDequant = 1.0f / 32767.0f;
+
+    MetroVertex result = {};
+
+    result.pos = MetroSwizzle(vec3(scast<float>(v.pos[0]) * posDequant,
+                                   scast<float>(v.pos[1]) * posDequant,
+                                   scast<float>(v.pos[2]) * posDequant));
+    result.bones[0] = v.bones[0] / 3;
+    result.bones[1] = v.bones[1] / 3;
+    result.bones[2] = v.bones[2] / 3;
+    result.bones[3] = v.bones[3] / 3;
+    MetroSwizzle(result.bones);
+    *rcast<uint32_t*>(result.weights) = *rcast<const uint32_t*>(v.weights);
+    MetroSwizzle(result.weights);
+
     return result;
 }
 

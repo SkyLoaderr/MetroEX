@@ -16,10 +16,11 @@ namespace MetroEX {
         mOriginalRootNode = nullptr;
         mPropertiesViewer = nullptr;
 
-        mFileExtensions = gcnew array<String^>(3);
-        mFileExtensions[0] = L".2048";
-        mFileExtensions[1] = L".1024";
-        mFileExtensions[2] = L".512";
+        mFileExtensions = gcnew array<String^>(4);
+        mFileExtensions[0] = L".4096";
+        mFileExtensions[1] = L".2048";
+        mFileExtensions[2] = L".1024";
+        mFileExtensions[3] = L".512";
 
         this->filterableTreeView->TreeView->ImageList = imageList;
 

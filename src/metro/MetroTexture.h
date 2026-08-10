@@ -50,6 +50,7 @@ public:
     size_t          GetDepth() const;
     size_t          GetNumMips() const;
     PixelFormat     GetFormat() const;
+    bool            HasAlpha() const;
 
     bool            GetRGBA(BytesArray& imagePixels) const;
     bool            GetBGRA(BytesArray& imagePixels) const;
@@ -66,4 +67,5 @@ private:
     size_t          mDepth;
     size_t          mNumMips;
     PixelFormat     mFormat;
+    bool            mHasAlpha;
 };

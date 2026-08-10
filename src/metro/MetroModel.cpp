@@ -75,10 +75,15 @@ struct MetroOBB {           // size = 60
 
 
 MetroModel::MetroModel()
-    : mSkeleton(nullptr)
+    : mVersion(0)
+    , mHeaderRead(false)
+    , mBSphere(0.0f)
+    , mSkeleton(nullptr)
     , mCurrentMesh(nullptr)
     , mThisFileIdx(MetroFile::InvalidFileIdx)
 {
+    mBBox.Reset();
+
     for (size_t i = 0; i < kMetroModelMaxLods; ++i) {
         mLodModels[i] = nullptr;
     }
@@ -98,6 +103,12 @@ bool MetroModel::LoadFromData(MemStream& stream, const size_t fileIdx) {
     mThisFileIdx = fileIdx;
 
     this->ReadSubChunks(stream);
+
+    for (size_t i = 0; i < kMetroModelMaxLods; ++i) {
+        if (mLodModels[i] != nullptr && mLodModels[i]->mMeshes.empty()) {
+            MySafeDelete(mLodModels[i]);
+        }
+    }
 
     if (mVersion >= kModelVersionArktika1) {
         this->LoadMotions();
@@ -844,10 +855,14 @@ void MetroModel::ReadSubChunks(MemStream& stream) {
                     mCurrentMesh->bbox = hdr.bbox;
                     mCurrentMesh->type = hdr.type;
                     mCurrentMesh->shaderId = hdr.shaderId;
-                } else {
+                } else if (!mHeaderRead) {
                     mVersion = hdr.version;
                     mBBox = hdr.bbox;
                     mBSphere = hdr.bsphere;
+                    mHeaderRead = true;
+                } else {
+                    mBBox.Absorb(hdr.bbox.minimum);
+                    mBBox.Absorb(hdr.bbox.maximum);
                 }
             } break;
 
@@ -859,6 +874,12 @@ void MetroModel::ReadSubChunks(MemStream& stream) {
                 mCurrentMesh->materials.resize(kMetroModelMaxMaterials);
                 for (auto& s : mCurrentMesh->materials) {
                     s = stream.ReadStringZ();
+                }
+
+                mCurrentMesh->materialFlags0 = stream.ReadTyped<uint16_t>();
+                mCurrentMesh->materialFlags1 = stream.ReadTyped<uint16_t>();
+                if (TestBit<size_t>(mCurrentMesh->materialFlags0, 8)) {
+                    mCurrentMesh->isCollision = true;
                 }
 
                 //#NOTE_SK: seems like meshes with either "invalid" texture, and/or "collision" source materials
@@ -979,73 +1000,55 @@ void MetroModel::ReadSubChunks(MemStream& stream) {
                 mCurrentMesh = nullptr;
             } break;
 
-            case MC_Lod_1_Chunk: {
-                if (mLodModels[0] != nullptr) {
-                    MySafeDelete(mLodModels[0]);
-                }
-                MetroModel* model = new MetroModel();
-                if (model->LoadFromData(stream, mThisFileIdx)) {
-                    mLodModels[0] = model;
-                } else {
-                    MySafeDelete(model);
-                }
-            } break;
-
+            case MC_Lod_1_Chunk:
             case MC_Lod_2_Chunk: {
-                if (mLodModels[1] != nullptr) {
-                    MySafeDelete(mLodModels[1]);
-                }
+                const size_t lodId = (MC_Lod_1_Chunk == chunkId) ? 0 : 1;
+
+                MySafeDelete(mLodModels[lodId]);
+
+                MemStream lodStream = stream.Substream(chunkSize);
                 MetroModel* model = new MetroModel();
-                if (model->LoadFromData(stream, mThisFileIdx)) {
-                    mLodModels[1] = model;
+                if (model->LoadFromData(lodStream, mThisFileIdx)) {
+                    mLodModels[lodId] = model;
                 } else {
                     MySafeDelete(model);
                 }
             } break;
 
             case MC_MeshesInline: {
-                stream.SkipBytes(16); // wtf ???
-                MemStream subStream = stream.Substream(chunkSize - 16);
-                this->ReadSubChunks(subStream);
+                MemStream lodsStream = stream.Substream(chunkSize);
+                while (!lodsStream.Ended()) {
+                    const size_t lodId = lodsStream.ReadTyped<uint32_t>();
+                    const size_t lodSize = lodsStream.ReadTyped<uint32_t>();
+
+                    if (lodId > kMetroModelMaxLods) {
+                        break;
+                    }
+
+                    MemStream meshesStream = lodsStream.Substream(lodSize);
+                    MetroModel* target = (0 == lodId) ? this : this->GetOrCreateLodModel(lodId - 1);
+                    target->LoadInlineMeshes(meshesStream);
+
+                    lodsStream.SkipBytes(lodSize);
+                }
             } break;
 
             case MC_MeshesLinks: {
-                const size_t numStrings = stream.ReadTyped<uint32_t>();
-                StringArray links, linksLod1, linksLod2;
-                for (size_t i = 0; i < numStrings; ++i) {
-                    CharString linksString = stream.ReadStringZ();
-                    if (!linksString.empty()) {
-                        StringArray splittedLinks = StrSplit(linksString, ',');
-                        if (this->IsAnimated() && numStrings <= 3) { // is it correct to find lods of dynamic models this way?
-                            if (i == 1) {
-                                linksLod1.insert(linksLod1.end(), splittedLinks.begin(), splittedLinks.end());
-                            } else if (i == 2) {
-                                linksLod2.insert(linksLod2.end(), splittedLinks.begin(), splittedLinks.end());
-                            } else {
-                                links.insert(links.end(), splittedLinks.begin(), splittedLinks.end());
-                            }
-                        } else {
-                            links.insert(links.end(), splittedLinks.begin(), splittedLinks.end());
-                        }
+                MemStream linksStream = stream.Substream(chunkSize);
+                linksStream.SkipBytes(sizeof(uint32_t));
+                for (size_t lodId = 0; lodId <= kMetroModelMaxLods && !linksStream.Ended(); ++lodId) {
+                    CharString linksString = linksStream.ReadStringZ();
+                    if (linksString.empty()) {
+                        continue;
                     }
-                }
 
-                if (!links.empty()) {
-                    this->LoadLinkedMeshes(links);
-                }
-                if (!linksLod1.empty()) {
-                    if (mLodModels[0] == nullptr) {
-                        mLodModels[0] = new MetroModel();
-                        mLodModels[0]->mThisFileIdx = this->mThisFileIdx;
+                    const StringArray links = StrSplit(linksString, ',');
+                    if (links.empty()) {
+                        continue;
                     }
-                    mLodModels[0]->LoadLinkedMeshes(linksLod1);
-                }
-                if (!linksLod2.empty()) {
-                    if (mLodModels[1] == nullptr) {
-                        mLodModels[1] = new MetroModel();
-                        mLodModels[1]->mThisFileIdx = this->mThisFileIdx;
-                    }
-                    mLodModels[1]->LoadLinkedMeshes(linksLod2);
+
+                    MetroModel* target = (0 == lodId) ? this : this->GetOrCreateLodModel(lodId - 1);
+                    target->LoadLinkedMeshes(links);
                 }
             } break;
 
@@ -1106,6 +1109,40 @@ void MetroModel::LoadLinkedMeshes(const StringArray& links) {
             mCurrentMesh = nullptr;
         }
     }
+}
+
+void MetroModel::LoadInlineMeshes(MemStream& stream) {
+    mCurrentMesh = nullptr;
+
+    size_t nextMeshId = 0;
+    while (!stream.Ended()) {
+        const size_t meshId = stream.ReadTyped<uint32_t>();
+        const size_t meshSize = stream.ReadTyped<uint32_t>();
+
+        if (meshId != nextMeshId) {
+            break;
+        }
+
+        MemStream meshStream = stream.Substream(meshSize);
+        this->ReadSubChunks(meshStream);
+        mCurrentMesh = nullptr;
+
+        stream.SkipBytes(meshSize);
+        ++nextMeshId;
+    }
+}
+
+MetroModel* MetroModel::GetOrCreateLodModel(const size_t lodId) {
+    if (lodId >= kMetroModelMaxLods) {
+        return this;
+    }
+
+    if (nullptr == mLodModels[lodId]) {
+        mLodModels[lodId] = new MetroModel();
+        mLodModels[lodId]->mThisFileIdx = mThisFileIdx;
+    }
+
+    return mLodModels[lodId];
 }
 
 void MetroModel::LoadMotions() {

@@ -43,6 +43,8 @@ public:
 private:
     void                    ReadSubChunks(MemStream& stream);
     void                    LoadLinkedMeshes(const StringArray& links);
+    void                    LoadInlineMeshes(MemStream& stream);
+    MetroModel*             GetOrCreateLodModel(const size_t lodId);
     void                    LoadMotions();
 
 private:
@@ -54,6 +56,7 @@ private:
     };
 
     size_t                  mVersion;
+    bool                    mHeaderRead;
     AABBox                  mBBox;
     vec4                    mBSphere;
     MyArray<MetroMesh*>     mMeshes;

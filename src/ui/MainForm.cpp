@@ -65,7 +65,8 @@ namespace MetroEX {
         if (name->EndsWith(L".dds") ||
             name->EndsWith(L".512") ||
             name->EndsWith(L".1024") ||
-            name->EndsWith(L".2048")) {
+            name->EndsWith(L".2048") ||
+            name->EndsWith(L".4096")) {
             result = FileType::Texture;
         } else if (name->EndsWith(L".bin")) {
             result = FileType::Bin;
@@ -1042,8 +1043,12 @@ namespace MetroEX {
 
         const MetroFileSystem& mfs = MetroFileSystem::Get();
 
-        CharString textureNameSrc = textureName + ".2048";
+        CharString textureNameSrc = textureName + ".4096";
         MyHandle textureHandle = mfs.FindFile(textureNameSrc);
+        if (textureHandle == kInvalidHandle) {
+            textureNameSrc = textureName + ".2048";
+            textureHandle = mfs.FindFile(textureNameSrc);
+        }
         if (textureHandle == kInvalidHandle) {
             textureNameSrc = textureName + ".1024";
             textureHandle = mfs.FindFile(textureNameSrc);

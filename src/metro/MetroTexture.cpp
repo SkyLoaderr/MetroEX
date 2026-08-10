@@ -1,5 +1,6 @@
 #include "MetroTexture.h"
 #include "MetroFileSystem.h"
+#include "VFXReader.h"
 #include "MetroCompression.h"
 #include "MetroBinArchive.h"
 #include "MetroReflection.h"
@@ -15,7 +16,6 @@
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_NO_STDIO
 #define STBI_NO_JPEG
-#define STBI_NO_BMP
 #define STBI_NO_PSD
 #define STBI_NO_GIF
 #define STBI_NO_HDR
@@ -30,6 +30,7 @@
 
 #include <fstream>
 #include <intrin.h>
+#include <cwctype>
 
 
 struct TextureInfoRedux {
@@ -96,6 +97,7 @@ MetroTexture::MetroTexture()
     , mDepth(0)
     , mNumMips(0)
     , mFormat(PixelFormat::Invalid)
+    , mHasAlpha(false)
 {
 }
 MetroTexture::~MetroTexture() {
@@ -173,7 +175,18 @@ bool MetroTexture::LoadFromData(MemStream& stream, const MyHandle file) {
                         return false;
                 }
             } else {
-                return false;
+                switch (ddsHdr.ddpfPixelFormat.dwFourCC) {
+                    case PIXEL_FMT_FOURCC('D', 'X', 'T', '1'): {
+                        mFormat = PixelFormat::BC1;
+                    } break;
+
+                    case PIXEL_FMT_FOURCC('D', 'X', 'T', '5'): {
+                        mFormat = PixelFormat::BC3;
+                    } break;
+
+                    default:
+                        return false;
+                }
             }
 
             mWidth = ddsHdr.dwWidth;
@@ -197,13 +210,20 @@ bool MetroTexture::LoadFromData(MemStream& stream, const MyHandle file) {
             } else if (extension == ".2048" || extension == ".2048c") {
                 dimension = 2048;
                 numMips = 1;
+            } else if (extension == ".4096") {
+                dimension = 4096;
+                numMips = 1;
             }
 
             const bool isCrunched = extension.back() == 'c';
 
             if (dimension > 0) {
-                if (mFormat == PixelFormat::Invalid) {
-                    // LZ4-compressed BC7 texture
+                const size_t gameVersion = mfs.GetGameVersion();
+                const bool isLZ4BC7 = (gameVersion == VFXReader::kVFXVersionUnknown)
+                                        ? (mFormat == PixelFormat::Invalid)
+                                        : (gameVersion >= VFXReader::kVFXVersionArktika1);
+
+                if (isLZ4BC7) {
                     const size_t bc7size = DDS_GetCompressedSizeBC7(dimension, dimension, numMips);
                     mData.resize(bc7size);
                     const size_t uresult = MetroCompression::DecompressBlob(data, length, mData.data(), bc7size);
@@ -219,7 +239,21 @@ bool MetroTexture::LoadFromData(MemStream& stream, const MyHandle file) {
                         result = true;
                     }
                 } else {
-                    const bool ok = (isCrunched ? this->DecrunchTexture(data, length) : true);
+                    bool ok;
+                    if (isCrunched) {
+                        ok = this->DecrunchTexture(data, length);
+                    } else {
+                        mData.resize(length);
+                        std::memcpy(mData.data(), data, length);
+
+                        if (mFormat == PixelFormat::Invalid) {
+                            const size_t bc1size = DDS_GetCompressedSizeBC1(dimension, dimension, numMips);
+                            mFormat = (length == bc1size) ? PixelFormat::BC1 : PixelFormat::BC3;
+                        }
+
+                        ok = true;
+                    }
+
                     if (ok) {
                         mWidth = dimension;
                         mHeight = dimension;
@@ -239,8 +273,9 @@ bool MetroTexture::LoadFromData(MemStream& stream, const MyHandle file) {
 bool MetroTexture::LoadFromFile(const fs::path& fileName) {
     bool result = false;
 
-    const std::wstring ext = fileName.extension().native();
-    if (ext == L".tga" || ext == L".png") {
+    std::wstring ext = fileName.extension().native();
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::towlower);
+    if (ext == L".tga" || ext == L".png" || ext == L".bmp") {
         std::ifstream file(fileName, std::ifstream::binary);
         if (file.good()) {
             BytesArray fileData;
@@ -255,7 +290,7 @@ bool MetroTexture::LoadFromFile(const fs::path& fileName) {
             uint8_t* pixels = stbi_load_from_memory(fileData.data(), scast<int>(fileData.size()), &width, &height, &bpp, STBI_rgb_alpha);
             fileData.resize(0);
             if (pixels) {
-                mData.resize(width * height * 4);
+                mData.resize(scast<size_t>(width) * scast<size_t>(height) * 4);
                 memcpy(mData.data(), pixels, mData.size());
 
                 stbi_image_free(pixels);
@@ -265,6 +300,7 @@ bool MetroTexture::LoadFromFile(const fs::path& fileName) {
                 mDepth = 1;
                 mNumMips = 1;
                 mFormat = PixelFormat::RGBA8_UNORM;
+                mHasAlpha = (bpp == 4);
 
                 result = true;
             }
@@ -378,6 +414,30 @@ bool MetroTexture::SaveAsMetroTexture(const fs::path& filePath) {
 
     BytesArray mipBuffer = mData;
     BytesArray nextMipBuffer; nextMipBuffer.resize(mipBuffer.size() / 4);
+
+    if (resolution == 4096) {
+        std::ofstream file(filePath.native() + L".4096", std::ofstream::binary);
+        if (file.good()) {
+            const size_t bc7Size = DDS_GetCompressedSizeBC7(resolution, resolution, 1);
+            BytesArray bc7Buffer;
+            bc7Buffer.resize(bc7Size);
+
+            DDS_CompressBC7(mipBuffer.data(), bc7Buffer.data(), resolution, resolution);
+
+            BytesArray lz4Buffer;
+            MetroCompression::CompressBlob(bc7Buffer.data(), bc7Size, lz4Buffer);
+
+            file.write(rcast<const char*>(lz4Buffer.data()), lz4Buffer.size());
+            file.flush();
+            file.close();
+        }
+
+        stbir_resize_uint8(mipBuffer.data(), scast<int>(resolution), scast<int>(resolution), 0,
+                           nextMipBuffer.data(), scast<int>(resolution / 2), scast<int>(resolution / 2), 0, 4);
+
+        resolution /= 2;
+        mipBuffer = nextMipBuffer;
+    }
 
     if (resolution == 2048) {
         std::ofstream file(filePath.native() + L".2048", std::ofstream::binary);
@@ -493,6 +553,10 @@ MetroTexture::PixelFormat MetroTexture::GetFormat() const {
     return mFormat;
 }
 
+bool MetroTexture::HasAlpha() const {
+    return mHasAlpha;
+}
+
 bool MetroTexture::GetRGBA(BytesArray& imagePixels) const {
     bool result = false;
 
@@ -573,6 +637,10 @@ bool MetroTexture::DecrunchTexture(const uint8_t* data, const size_t dataLength)
 
         if (result) {
             crnd::crnd_unpack_end(ctx);
+
+            if (mFormat == PixelFormat::Invalid) {
+                mFormat = (info.m_format == cCRNFmtDXT1) ? PixelFormat::BC1 : PixelFormat::BC3;
+            }
         }
     } else {
         result = false;
