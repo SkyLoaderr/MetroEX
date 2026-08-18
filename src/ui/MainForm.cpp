@@ -15,7 +15,6 @@
 #include "MainForm.h"
 #include "AboutDlg.h"
 #include "TexturesDatabaseViewer.h"
-#include "NodeSorter.h"
 #include "DlgSettings.h"
 
 #include "ui/tools/DlgConvertTextures.h"
@@ -40,9 +39,6 @@ static const int    kImageIdxMotion         = 7;
 static const int    kImageIdxSound          = 8;
 static const int    kImageIdxModel          = 9;
 static const int    kImageIdxLocalization   = 10;
-
-static const size_t kFileHandleMask         = size_t(~0) >> 1;
-static const size_t kFolderSortedFlag       = size_t(1) << ((sizeof(size_t) * 8) - 1);
 
 namespace MetroEX {
     ref struct FileTagData {
@@ -83,6 +79,32 @@ namespace MetroEX {
         }
 
         return result;
+    }
+
+    static MyArray<MyHandle> CollectSortedChildren(const MyHandle folder, const MyHandle configBinFile) {
+        MetroFileSystem& mfs = MetroFileSystem::Get();
+
+        MyArray<MyHandle> children;
+        for (MyHandle child = mfs.GetFirstChild(folder); child != kInvalidHandle; child = mfs.GetNextChild(child)) {
+            children.push_back(child);
+        }
+
+        std::sort(children.begin(), children.end(), [&mfs, configBinFile](const MyHandle a, const MyHandle b)->bool {
+            const bool aIsFolder = mfs.IsFolder(a) || a == configBinFile;
+            const bool bIsFolder = mfs.IsFolder(b) || b == configBinFile;
+
+            if (aIsFolder != bIsFolder) {
+                return aIsFolder;
+            } else {
+                const CharString& aName = mfs.GetName(a);
+                const CharString& bName = mfs.GetName(b);
+
+                const int cmp = _stricmp(aName.c_str(), bName.c_str());
+                return (cmp != 0) ? (cmp < 0) : (aName < bName);
+            }
+        });
+
+        return children;
     }
 
     static void UpdateNodeIcon(TreeNode^ Node, eNodeEventType eventType = eNodeEventType::Default) {
@@ -332,7 +354,7 @@ namespace MetroEX {
         }
 
         FileTagData^ fileData = safe_cast<FileTagData^>(e->Node->Tag);
-        MyHandle file = fileData->fileHandle & kFileHandleMask;
+        MyHandle file = fileData->fileHandle;
         const bool isSubFile = fileData->subFileIdx != kInvalidValue;
 
         const MetroFileSystem& mfs = MetroFileSystem::Get();
@@ -368,43 +390,8 @@ namespace MetroEX {
     }
 
     void MainForm::filterableTreeView_AfterExpand(System::Object^, System::Windows::Forms::TreeViewEventArgs^ e) {
-        TreeNode^ node = e->Node;
-
-        if (node == nullptr) {
-            return;
-        }
-
-        UpdateNodeIcon(node, eNodeEventType::Open);
-
-        FileTagData^ fileData = safe_cast<FileTagData^>(node->Tag);
-        const bool isSubTreeSorted = (fileData->fileHandle & kFolderSortedFlag) != 0;
-
-        if (!isSubTreeSorted) {
-            MyHandle file = fileData->fileHandle & kFileHandleMask;
-
-            if (node->Nodes->Count > 1) {
-                System::Windows::Forms::Cursor::Current = System::Windows::Forms::Cursors::WaitCursor;
-
-                //#NOTE_SK: somehow, BeginUpdate/BeginUpdate makes it even slower, so commented out for the moment
-                //this->filterableTreeView->TreeView->BeginUpdate();
-                this->filterableTreeView->TreeView->SuspendLayout();
-                array<TreeNode^>^ nodes = gcnew array<TreeNode^>(node->Nodes->Count);
-                node->Nodes->CopyTo(nodes, 0);
-                NodeSorter^ sorter = gcnew NodeSorter();
-                System::Array::Sort(nodes, sorter);
-                node->Nodes->Clear();
-                node->Nodes->AddRange(nodes);
-                delete sorter;
-                delete nodes;
-                //this->filterableTreeView->TreeView->EndUpdate();
-                this->filterableTreeView->TreeView->ResumeLayout(false);
-
-                System::Windows::Forms::Cursor::Current = System::Windows::Forms::Cursors::Arrow;
-            }
-
-            if (!this->filterableTreeView->IsFiltering) {
-                fileData->fileHandle = kFolderSortedFlag | file;
-            }
+        if (e->Node != nullptr) {
+            UpdateNodeIcon(e->Node, eNodeEventType::Open);
         }
     }
 
@@ -413,7 +400,7 @@ namespace MetroEX {
             FileTagData^ fileData = safe_cast<FileTagData^>(e->Node->Tag);
             const bool isSubFile = fileData->subFileIdx != kInvalidValue;
 
-            MyHandle file = fileData->fileHandle & kFileHandleMask;
+            MyHandle file = fileData->fileHandle;
 
             const FileType fileType = isSubFile ? fileData->fileType : DetectFileType(file);
 
@@ -651,7 +638,7 @@ namespace MetroEX {
             UpdateNodeIcon(rootNode);
 
             const MyHandle rootDir = mfs.GetRootFolder();
-            for (MyHandle child = mfs.GetFirstChild(rootDir); child != kInvalidHandle; child = mfs.GetNextChild(child)) {
+            for (const MyHandle child : CollectSortedChildren(rootDir, configBinFile)) {
                 if (mfs.IsFolder(child)) {
                     this->AddFoldersRecursive(child, rootNode, configBinFile);
                 } else {
@@ -676,7 +663,7 @@ namespace MetroEX {
         UpdateNodeIcon(dirLeafNode);
 
         // Add files and folders inside
-        for (auto child = mfs.GetFirstChild(folder); child != kInvalidHandle; child = mfs.GetNextChild(child)) {
+        for (const MyHandle child : CollectSortedChildren(folder, configBinFile)) {
             if (mfs.IsFolder(child)) {
                 // Add folder to list
                 this->AddFoldersRecursive(child, dirLeafNode, configBinFile);
