@@ -171,7 +171,7 @@ namespace MetroEX {
     private: System::Windows::Forms::ContextMenuStrip^  ctxMenuExportBin;
     private: System::Windows::Forms::ToolStripMenuItem^  extractBinRootToolStripMenuItem;
     private: System::Windows::Forms::ToolStripMenuItem^  extractBinChunkToolStripMenuItem;
-    private: System::Windows::Forms::TableLayoutPanel^  tableLayoutPanel2;
+    private: System::Windows::Forms::SplitContainer^  splitContainerViewers;
     private: System::Windows::Forms::Panel^  pnlViewers;
     private: System::Windows::Forms::Panel^  pnlMetaProps;
 
@@ -232,7 +232,7 @@ private: System::Windows::Forms::ToolStripMenuItem^  saveSurfaceSetToolStripMenu
             this->statusLabel4 = (gcnew System::Windows::Forms::ToolStripStatusLabel());
             this->splitContainer1 = (gcnew System::Windows::Forms::SplitContainer());
             this->filterableTreeView = (gcnew MetroEXControls::FilterableTreeView());
-            this->tableLayoutPanel2 = (gcnew System::Windows::Forms::TableLayoutPanel());
+            this->splitContainerViewers = (gcnew System::Windows::Forms::SplitContainer());
             this->pnlViewers = (gcnew System::Windows::Forms::Panel());
             this->pnlMetaProps = (gcnew System::Windows::Forms::Panel());
             this->imageListMain = (gcnew System::Windows::Forms::ImageList(this->components));
@@ -287,7 +287,10 @@ private: System::Windows::Forms::ToolStripMenuItem^  saveSurfaceSetToolStripMenu
             this->splitContainer1->Panel1->SuspendLayout();
             this->splitContainer1->Panel2->SuspendLayout();
             this->splitContainer1->SuspendLayout();
-            this->tableLayoutPanel2->SuspendLayout();
+            (cli::safe_cast<System::ComponentModel::ISupportInitialize^>(this->splitContainerViewers))->BeginInit();
+            this->splitContainerViewers->Panel1->SuspendLayout();
+            this->splitContainerViewers->Panel2->SuspendLayout();
+            this->splitContainerViewers->SuspendLayout();
             this->ctxMenuExportTexture->SuspendLayout();
             this->ctxMenuExportModel->SuspendLayout();
             this->ctxMenuExportSound->SuspendLayout();
@@ -353,7 +356,7 @@ private: System::Windows::Forms::ToolStripMenuItem^  saveSurfaceSetToolStripMenu
             // 
             // splitContainer1.Panel2
             // 
-            this->splitContainer1->Panel2->Controls->Add(this->tableLayoutPanel2);
+            this->splitContainer1->Panel2->Controls->Add(this->splitContainerViewers);
             this->splitContainer1->Size = System::Drawing::Size(1159, 672);
             this->splitContainer1->SplitterDistance = 301;
             this->splitContainer1->TabIndex = 2;
@@ -369,22 +372,27 @@ private: System::Windows::Forms::ToolStripMenuItem^  saveSurfaceSetToolStripMenu
             this->filterableTreeView->Size = System::Drawing::Size(301, 672);
             this->filterableTreeView->TabIndex = 0;
             // 
-            // tableLayoutPanel2
+            // splitContainerViewers
             // 
-            this->tableLayoutPanel2->ColumnCount = 1;
-            this->tableLayoutPanel2->ColumnStyles->Add((gcnew System::Windows::Forms::ColumnStyle(System::Windows::Forms::SizeType::Percent,
-                100)));
-            this->tableLayoutPanel2->Controls->Add(this->pnlViewers, 0, 0);
-            this->tableLayoutPanel2->Controls->Add(this->pnlMetaProps, 0, 1);
-            this->tableLayoutPanel2->Dock = System::Windows::Forms::DockStyle::Fill;
-            this->tableLayoutPanel2->Location = System::Drawing::Point(0, 0);
-            this->tableLayoutPanel2->Margin = System::Windows::Forms::Padding(0);
-            this->tableLayoutPanel2->Name = L"tableLayoutPanel2";
-            this->tableLayoutPanel2->RowCount = 2;
-            this->tableLayoutPanel2->RowStyles->Add((gcnew System::Windows::Forms::RowStyle(System::Windows::Forms::SizeType::Percent, 100)));
-            this->tableLayoutPanel2->RowStyles->Add((gcnew System::Windows::Forms::RowStyle(System::Windows::Forms::SizeType::Absolute, 80)));
-            this->tableLayoutPanel2->Size = System::Drawing::Size(854, 672);
-            this->tableLayoutPanel2->TabIndex = 0;
+            this->splitContainerViewers->Dock = System::Windows::Forms::DockStyle::Fill;
+            this->splitContainerViewers->Location = System::Drawing::Point(0, 0);
+            this->splitContainerViewers->Margin = System::Windows::Forms::Padding(0);
+            this->splitContainerViewers->Name = L"splitContainerViewers";
+            this->splitContainerViewers->Orientation = System::Windows::Forms::Orientation::Horizontal;
+            // 
+            // splitContainerViewers.Panel1
+            // 
+            this->splitContainerViewers->Panel1->Controls->Add(this->pnlViewers);
+            this->splitContainerViewers->Panel1MinSize = 100;
+            // 
+            // splitContainerViewers.Panel2
+            // 
+            this->splitContainerViewers->Panel2->Controls->Add(this->pnlMetaProps);
+            this->splitContainerViewers->Panel2MinSize = 80;
+            this->splitContainerViewers->Size = System::Drawing::Size(854, 672);
+            this->splitContainerViewers->SplitterDistance = 512;
+            this->splitContainerViewers->FixedPanel = System::Windows::Forms::FixedPanel::Panel2;
+            this->splitContainerViewers->TabIndex = 0;
             // 
             // pnlViewers
             // 
@@ -392,17 +400,17 @@ private: System::Windows::Forms::ToolStripMenuItem^  saveSurfaceSetToolStripMenu
             this->pnlViewers->Location = System::Drawing::Point(0, 0);
             this->pnlViewers->Margin = System::Windows::Forms::Padding(0);
             this->pnlViewers->Name = L"pnlViewers";
-            this->pnlViewers->Size = System::Drawing::Size(854, 592);
+            this->pnlViewers->Size = System::Drawing::Size(854, 512);
             this->pnlViewers->TabIndex = 0;
             // 
             // pnlMetaProps
             // 
             this->pnlMetaProps->BorderStyle = System::Windows::Forms::BorderStyle::FixedSingle;
             this->pnlMetaProps->Dock = System::Windows::Forms::DockStyle::Fill;
-            this->pnlMetaProps->Location = System::Drawing::Point(0, 592);
+            this->pnlMetaProps->Location = System::Drawing::Point(0, 0);
             this->pnlMetaProps->Margin = System::Windows::Forms::Padding(0);
             this->pnlMetaProps->Name = L"pnlMetaProps";
-            this->pnlMetaProps->Size = System::Drawing::Size(854, 80);
+            this->pnlMetaProps->Size = System::Drawing::Size(854, 156);
             this->pnlMetaProps->TabIndex = 1;
             // 
             // imageListMain
@@ -805,7 +813,10 @@ private: System::Windows::Forms::ToolStripMenuItem^  saveSurfaceSetToolStripMenu
             this->splitContainer1->Panel2->ResumeLayout(false);
             (cli::safe_cast<System::ComponentModel::ISupportInitialize^>(this->splitContainer1))->EndInit();
             this->splitContainer1->ResumeLayout(false);
-            this->tableLayoutPanel2->ResumeLayout(false);
+            this->splitContainerViewers->Panel1->ResumeLayout(false);
+            this->splitContainerViewers->Panel2->ResumeLayout(false);
+            (cli::safe_cast<System::ComponentModel::ISupportInitialize^>(this->splitContainerViewers))->EndInit();
+            this->splitContainerViewers->ResumeLayout(false);
             this->ctxMenuExportTexture->ResumeLayout(false);
             this->ctxMenuExportModel->ResumeLayout(false);
             this->ctxMenuExportSound->ResumeLayout(false);

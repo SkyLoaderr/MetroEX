@@ -4,8 +4,23 @@ using System.Windows.Forms;
 
 namespace MetroEXControls {
     public partial class FilterableTreeView : UserControl {
-        public string FilterPlaceholder { get; set; } = "Search here...";
-        public int FilterTimeout { get; set; } = 1000;
+        public string FilterPlaceholder {
+            get { return mFilterPlaceholder; }
+            set {
+                mFilterPlaceholder = value;
+                //#NOTE_SK: set placeholder text for better and cooler look ;)
+                WinApi.SendMessage(FilterTextBox.Handle, WinApi.EM_SETCUEBANNER, 0, mFilterPlaceholder);
+            }
+        }
+
+        public int FilterTimeout {
+            get { return mFilterTimeout; }
+            set {
+                mFilterTimeout = value;
+                mTimer.Interval = mFilterTimeout;
+            }
+        }
+
         public TreeView TreeView { get { return this.treeView; } }
         public TextBox FilterTextBox { get { return this.filterTextBox; } }
         public bool IsFiltering { get { return mIsFiltering; } }
@@ -16,16 +31,18 @@ namespace MetroEXControls {
         private Timer mTimer;
         private TreeNode[] mOriginalRootNodes;
         private bool mIsFiltering;
+        private bool mSuppressFiltering;
+        private string mFilterPlaceholder = "Search here...";
+        private int mFilterTimeout = 1000;
 
         public FilterableTreeView() {
             InitializeComponent();
 
-            //#NOTE_SK: set placeholder text for better and cooler look ;)
-            WinApi.SendMessage(FilterTextBox.Handle, WinApi.EM_SETCUEBANNER, 0, FilterPlaceholder);
-
             mTimer = new Timer();
-            mTimer.Interval = FilterTimeout;
+            mTimer.Interval = mFilterTimeout;
             mTimer.Tick += new EventHandler(filterTimer_Tick);
+
+            this.FilterPlaceholder = mFilterPlaceholder;
         }
 
         public void Initialize() {
@@ -36,6 +53,16 @@ namespace MetroEXControls {
             }
 
             this.treeView.Nodes.CopyTo(mOriginalRootNodes, 0);
+        }
+
+        public void ResetFilter() {
+            mTimer.Stop();
+
+            mSuppressFiltering = true;
+            this.filterTextBox.Text = string.Empty;
+            mSuppressFiltering = false;
+
+            mIsFiltering = false;
         }
 
         private void filterTimer_Tick(Object sender, EventArgs e) {
@@ -72,27 +99,39 @@ namespace MetroEXControls {
             Cursor.Current = Cursors.Arrow;
         }
 
-        private void FilterTreeView(TreeNode node, string text) {
+        private bool FilterTreeView(TreeNode node, string text) {
             var nodesToRemove = new List<TreeNode>();
+            var anythingMatched = false;
 
             for (int i = 0; i < node.Nodes.Count; ++i) {
-                if (node.Nodes[i].Nodes.Count > 0) {
-                    FilterTreeView(node.Nodes[i], text);
+                var child = node.Nodes[i];
+                var childMatched = child.Text.IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0;
 
-                    if (node.Nodes[i].Nodes.Count == 0) {
-                        nodesToRemove.Add(node.Nodes[i]);
+                if (child.Nodes.Count > 0) {
+                    if (childMatched || FilterTreeView(child, text)) {
+                        anythingMatched = true;
+                    } else {
+                        nodesToRemove.Add(child);
                     }
-                } else if (!node.Nodes[i].Text.Contains(text)) {
-                    nodesToRemove.Add(node.Nodes[i]);
+                } else if (childMatched) {
+                    anythingMatched = true;
+                } else {
+                    nodesToRemove.Add(child);
                 }
             }
 
             for (int i = 0; i < nodesToRemove.Count; ++i) {
                 node.Nodes.Remove(nodesToRemove[i]);
             }
+
+            return anythingMatched;
         }
 
         private void filterText_TextChanged(object sender, EventArgs e) {
+            if (mSuppressFiltering) {
+                return;
+            }
+
             if (FilterRequested == null) {
                 if (mOriginalRootNodes == null) {
                     Initialize();

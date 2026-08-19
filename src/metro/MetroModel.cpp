@@ -1671,15 +1671,10 @@ void MetroModel::LoadMotions() {
     MyArray<size_t> motionFiles;
 
     StringArray motionFolders = StrSplit(motionsStr, ',');
-    StringArray motionPaths;
     for (const CharString& f : motionFolders) {
         CharString fullFolderPath = "content\\motions\\" + f + "\\";
 
         const auto& files = mfs.FindFilesInFolder(fullFolderPath, ".m2");
-
-        for (const MyHandle file : files) {
-            motionPaths.push_back(fullFolderPath + mfs.GetName(file));
-        }
 
         motionFiles.insert(motionFiles.end(), files.begin(), files.end());
     }
@@ -1687,16 +1682,14 @@ void MetroModel::LoadMotions() {
     const size_t numBones = mSkeleton->GetNumBones();
 
     mMotions.reserve(motionFiles.size());
-    size_t i = 0;
     for (const size_t idx : motionFiles) {
         MemStream stream = mfs.OpenFileStream(idx);
         if (stream) {
             MetroMotion motion(kEmptyString);
             if (motion.LoadHeader(stream) && motion.GetNumBones() == numBones) {
-                mMotions.push_back({idx, motion.GetNumFrames(), motionPaths[i], nullptr});
+                mMotions.push_back({idx, motion.GetNumFrames(), mfs.GetFullPath(idx), nullptr});
             }
         }
-        ++i;
     }
 }
 

@@ -30,6 +30,22 @@ enum class eNodeEventType : size_t {
     Close
 };
 
+static CharString MakeMotionTreePath(const CharString& motionPath) {
+    static const CharString kMotionsRoot = "content\\motions\\";
+
+    CharString result = motionPath;
+
+    if (result.length() > kMotionsRoot.length() && result.compare(0, kMotionsRoot.length(), kMotionsRoot) == 0) {
+        result = result.substr(kMotionsRoot.length());
+    }
+
+    if (StrEndsWith(result, ".m2")) {
+        result = result.substr(0, result.length() - 3);
+    }
+
+    return result;
+}
+
 static const int    kImageIdxFolderClosed   = 0;
 static const int    kImageIdxFolderOpen     = 1;
 static const int    kImageIdxFile           = 2;
@@ -238,6 +254,7 @@ namespace MetroEX {
         mModelInfoPanel->Location = System::Drawing::Point(0, 0);
         mModelInfoPanel->Name = L"mModelInfoPanel";
         mModelInfoPanel->Size = System::Drawing::Size(481, 72);
+        mModelInfoPanel->SetMotionsImages(this->imageListMain, kImageIdxFolderClosed, kImageIdxFolderOpen, kImageIdxMotion);
         mModelInfoPanel->OnMotionsListSelectionChanged += gcnew MetroEXControls::ModelInfoPanel::OnListSelectionChanged(this, &MainForm::lstMdlPropMotions_SelectedIndexChanged);
         mModelInfoPanel->OnPlayButtonClicked += gcnew MetroEXControls::ModelInfoPanel::OnButtonClicked(this, &MainForm::btnMdlPropPlayStopAnim_Click);
         mModelInfoPanel->OnInfoButtonClicked += gcnew MetroEXControls::ModelInfoPanel::OnButtonClicked(this, &MainForm::btnModelInfo_Click);
@@ -1011,9 +1028,10 @@ namespace MetroEX {
                 if (mdl->IsAnimated()) {
                     const size_t numMotions = mdl->GetNumMotions();
                     for (size_t i = 0; i < numMotions; ++i) {
-                        const CharString& motionName = mdl->GetMotionName(i);
-                        mModelInfoPanel->AddMotionToList(ToNetString(motionName));
+                        const CharString motionPath = MakeMotionTreePath(mdl->GetMotionPath(i));
+                        mModelInfoPanel->AddMotionToList(ToNetString(motionPath), scast<int>(i));
                     }
+                    mModelInfoPanel->FinishMotionsList();
 
                     mModelInfoPanel->MdlPropTypeText = L"Animated";
                     mModelInfoPanel->MdlPropJointsText = mdl->GetSkeleton()->GetNumBones().ToString();

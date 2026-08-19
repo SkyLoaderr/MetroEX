@@ -31,7 +31,7 @@
             this.label1 = new System.Windows.Forms.Label();
             this.btnModelInfo = new System.Windows.Forms.Button();
             this.btnMdlPropPlayStopAnim = new System.Windows.Forms.Button();
-            this.lstMdlPropMotions = new System.Windows.Forms.ListBox();
+            this.treeMdlPropMotions = new MetroEXControls.FilterableTreeView();
             this.lblMdlPropJoints = new System.Windows.Forms.Label();
             this.label9 = new System.Windows.Forms.Label();
             this.lblMdlPropTriangles = new System.Windows.Forms.Label();
@@ -54,7 +54,7 @@
             this.pnlMdlProps.Controls.Add(this.label1);
             this.pnlMdlProps.Controls.Add(this.btnModelInfo);
             this.pnlMdlProps.Controls.Add(this.btnMdlPropPlayStopAnim);
-            this.pnlMdlProps.Controls.Add(this.lstMdlPropMotions);
+            this.pnlMdlProps.Controls.Add(this.treeMdlPropMotions);
             this.pnlMdlProps.Controls.Add(this.lblMdlPropJoints);
             this.pnlMdlProps.Controls.Add(this.label9);
             this.pnlMdlProps.Controls.Add(this.lblMdlPropTriangles);
@@ -67,12 +67,13 @@
             this.pnlMdlProps.Location = new System.Drawing.Point(0, 0);
             this.pnlMdlProps.Margin = new System.Windows.Forms.Padding(0);
             this.pnlMdlProps.Name = "pnlMdlProps";
-            this.pnlMdlProps.Size = new System.Drawing.Size(680, 84);
+            this.pnlMdlProps.Size = new System.Drawing.Size(680, 160);
             this.pnlMdlProps.TabIndex = 2;
             // 
             // btnModelExportMotion
             // 
-            this.btnModelExportMotion.Location = new System.Drawing.Point(480, 53);
+            this.btnModelExportMotion.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.btnModelExportMotion.Location = new System.Drawing.Point(601, 81);
             this.btnModelExportMotion.Name = "btnModelExportMotion";
             this.btnModelExportMotion.Size = new System.Drawing.Size(75, 23);
             this.btnModelExportMotion.TabIndex = 13;
@@ -100,7 +101,8 @@
             // 
             // btnModelInfo
             // 
-            this.btnModelInfo.Location = new System.Drawing.Point(480, 27);
+            this.btnModelInfo.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.btnModelInfo.Location = new System.Drawing.Point(601, 55);
             this.btnModelInfo.Name = "btnModelInfo";
             this.btnModelInfo.Size = new System.Drawing.Size(75, 23);
             this.btnModelInfo.TabIndex = 10;
@@ -110,7 +112,8 @@
             // 
             // btnMdlPropPlayStopAnim
             // 
-            this.btnMdlPropPlayStopAnim.Location = new System.Drawing.Point(480, 1);
+            this.btnMdlPropPlayStopAnim.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.btnMdlPropPlayStopAnim.Location = new System.Drawing.Point(601, 29);
             this.btnMdlPropPlayStopAnim.Name = "btnMdlPropPlayStopAnim";
             this.btnMdlPropPlayStopAnim.Size = new System.Drawing.Size(75, 23);
             this.btnMdlPropPlayStopAnim.TabIndex = 9;
@@ -118,15 +121,18 @@
             this.btnMdlPropPlayStopAnim.UseVisualStyleBackColor = true;
             this.btnMdlPropPlayStopAnim.Click += new System.EventHandler(this.btnMdlPropPlayStopAnim_Click);
             // 
-            // lstMdlPropMotions
+            // treeMdlPropMotions
             // 
-            this.lstMdlPropMotions.FormattingEnabled = true;
-            this.lstMdlPropMotions.Location = new System.Drawing.Point(180, 1);
-            this.lstMdlPropMotions.Margin = new System.Windows.Forms.Padding(0);
-            this.lstMdlPropMotions.Name = "lstMdlPropMotions";
-            this.lstMdlPropMotions.Size = new System.Drawing.Size(297, 69);
-            this.lstMdlPropMotions.TabIndex = 8;
-            this.lstMdlPropMotions.SelectedIndexChanged += new System.EventHandler(this.lstMdlPropMotions_SelectedIndexChanged);
+            this.treeMdlPropMotions.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom)
+            | System.Windows.Forms.AnchorStyles.Left)
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.treeMdlPropMotions.FilterPlaceholder = "Search animation...";
+            this.treeMdlPropMotions.FilterTimeout = 300;
+            this.treeMdlPropMotions.Location = new System.Drawing.Point(125, 1);
+            this.treeMdlPropMotions.Margin = new System.Windows.Forms.Padding(0);
+            this.treeMdlPropMotions.Name = "treeMdlPropMotions";
+            this.treeMdlPropMotions.Size = new System.Drawing.Size(470, 156);
+            this.treeMdlPropMotions.TabIndex = 8;
             // 
             // lblMdlPropJoints
             // 
@@ -202,6 +208,7 @@
             // 
             // labelLods
             // 
+            this.labelLods.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
             this.labelLods.AutoSize = true;
             this.labelLods.Location = new System.Drawing.Point(561, 5);
             this.labelLods.Name = "labelLods";
@@ -211,6 +218,7 @@
             // 
             // lstLods
             // 
+            this.lstLods.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
             this.lstLods.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
             this.lstLods.Enabled = false;
             this.lstLods.FormattingEnabled = true;
@@ -227,7 +235,7 @@
             this.Controls.Add(this.pnlMdlProps);
             this.Margin = new System.Windows.Forms.Padding(0);
             this.Name = "ModelInfoPanel";
-            this.Size = new System.Drawing.Size(680, 84);
+            this.Size = new System.Drawing.Size(680, 160);
             this.pnlMdlProps.ResumeLayout(false);
             this.pnlMdlProps.PerformLayout();
             this.ResumeLayout(false);
@@ -239,7 +247,7 @@
         private System.Windows.Forms.Panel pnlMdlProps;
         private System.Windows.Forms.Button btnModelInfo;
         private System.Windows.Forms.Button btnMdlPropPlayStopAnim;
-        private System.Windows.Forms.ListBox lstMdlPropMotions;
+        private MetroEXControls.FilterableTreeView treeMdlPropMotions;
         private System.Windows.Forms.Label lblMdlPropJoints;
         private System.Windows.Forms.Label label9;
         private System.Windows.Forms.Label lblMdlPropTriangles;
