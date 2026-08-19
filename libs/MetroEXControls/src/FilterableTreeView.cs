@@ -10,6 +10,9 @@ namespace MetroEXControls {
         public TextBox FilterTextBox { get { return this.filterTextBox; } }
         public bool IsFiltering { get { return mIsFiltering; } }
 
+        // when set, the owner takes over the filtering and rebuilds the tree by itself
+        public event Action<string> FilterRequested;
+
         private Timer mTimer;
         private TreeNode[] mOriginalRootNodes;
         private bool mIsFiltering;
@@ -39,6 +42,14 @@ namespace MetroEXControls {
             mTimer.Stop();
 
             Cursor.Current = Cursors.WaitCursor;
+
+            if (FilterRequested != null) {
+                mIsFiltering = !string.IsNullOrWhiteSpace(this.filterTextBox.Text);
+                FilterRequested(this.filterTextBox.Text);
+
+                Cursor.Current = Cursors.Arrow;
+                return;
+            }
 
             this.treeView.BeginUpdate();
             this.treeView.Nodes.Clear();
@@ -82,14 +93,18 @@ namespace MetroEXControls {
         }
 
         private void filterText_TextChanged(object sender, EventArgs e) {
-            if (mOriginalRootNodes == null) {
-                Initialize();
+            if (FilterRequested == null) {
+                if (mOriginalRootNodes == null) {
+                    Initialize();
+                }
+
+                if (mOriginalRootNodes == null || mOriginalRootNodes.Length == 0) {
+                    return;
+                }
             }
 
-            if (mOriginalRootNodes != null && mOriginalRootNodes.Length > 0) {
-                mTimer.Stop();
-                mTimer.Start();
-            }
+            mTimer.Stop();
+            mTimer.Start();
         }
 
         public bool FindAndSelect(string text, string[] extensions) {

@@ -88,19 +88,26 @@ namespace MetroEX {
             mExtractionCtx = new FileExtractionCtx;
             mExtractionProgressDlg = nullptr;
 
-            mOriginalRootNode = nullptr;
+            mConfigBinFile = kInvalidHandle;
+            mIsTreeFiltering = false;
 
             InitializeComponent();
 
             this->filterableTreeView->TreeView->ImageList = this->imageListMain;
             this->filterableTreeView->TreeView->NodeMouseClick += (gcnew TreeNodeMouseClickEventHandler(this, &MainForm::filterableTreeView_NodeMouseClick));
             this->filterableTreeView->TreeView->AfterCollapse += (gcnew TreeViewEventHandler(this, &MainForm::filterableTreeView_AfterCollapse));
+            this->filterableTreeView->TreeView->BeforeExpand += (gcnew TreeViewCancelEventHandler(this, &MainForm::filterableTreeView_BeforeExpand));
             this->filterableTreeView->TreeView->AfterExpand += (gcnew TreeViewEventHandler(this, &MainForm::filterableTreeView_AfterExpand));
+            this->filterableTreeView->FilterRequested += (gcnew Action<String^>(this, &MainForm::OnTreeFilterChanged));
             this->filterableTreeView->TreeView->AfterSelect += (gcnew TreeViewEventHandler(this, &MainForm::filterableTreeView_AfterSelect));
         }
 
     protected:
         ~MainForm() {
+            if (this->filterableTreeView) {
+                delete this->filterableTreeView;
+            }
+
             if (components) {
                 delete components;
             }
@@ -122,7 +129,8 @@ namespace MetroEX {
         System::Threading::Thread^          mExtractionThread;
         IProgressDialog*                    mExtractionProgressDlg;
 
-        TreeNode^                           mOriginalRootNode;
+        MyHandle                            mConfigBinFile;
+        bool                                mIsTreeFiltering;
 
         MetroConfigsDatabase*               mConfigsDatabase;
 
@@ -826,6 +834,7 @@ private: System::Windows::Forms::ToolStripMenuItem^  saveSurfaceSetToolStripMenu
         // treeview
         void filterableTreeView_AfterSelect(System::Object^ sender, System::Windows::Forms::TreeViewEventArgs^ e);
         void filterableTreeView_AfterCollapse(System::Object^ sender, System::Windows::Forms::TreeViewEventArgs^ e);
+        void filterableTreeView_BeforeExpand(System::Object^ sender, System::Windows::Forms::TreeViewCancelEventArgs^ e);
         void filterableTreeView_AfterExpand(System::Object^ sender, System::Windows::Forms::TreeViewEventArgs^ e);
         void filterableTreeView_NodeMouseClick(System::Object^ sender, System::Windows::Forms::TreeNodeMouseClickEventArgs^ e);
         // context menu
@@ -848,8 +857,13 @@ private: System::Windows::Forms::ToolStripMenuItem^  saveSurfaceSetToolStripMenu
 
     private:
         void UpdateFilesList();
-        void AddFoldersRecursive(MyHandle folder, TreeNode^ rootItem, const MyHandle configBinFile);
-        void AddBinaryArchive(MyHandle file, TreeNode^ rootItem);
+        TreeNode^ MakeFileSystemNode(const MyHandle entry);
+        void PopulateNode(TreeNode^ node);
+        void PopulateBinArchiveNode(TreeNode^ node, const MyHandle file);
+        void OnTreeFilterChanged(String^ text);
+        void BuildFilteredTree(String^ text);
+        void AddFilteredChildren(TreeNode^ parentNode, const MyHandle folder, String^ text);
+        void AddFilteredBinChildren(TreeNode^ binNode, const MyHandle file, String^ text);
         void DetectFileAndShow(MyHandle file);
         void ShowTexture(MyHandle file);
         void ShowModel(MyHandle file);

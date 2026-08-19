@@ -22,6 +22,8 @@
 
 #include "UIHelpers.h"
 
+using namespace System::Collections::Generic;
+
 enum class eNodeEventType : size_t {
     Default,
     Open,
@@ -45,11 +47,20 @@ namespace MetroEX {
         FileType    fileType;       // type of file
         MyHandle    fileHandle;     // file system file handle
         size_t      subFileIdx;     // index inside .bin database
+        bool        populated;      // are the real children already added ?
 
         FileTagData(const FileType _fileType, MyHandle _file, const size_t _subFileIdx)
             : fileType(_fileType)
             , fileHandle(_file)
             , subFileIdx(_subFileIdx)
+            , populated(false)
+        { }
+
+        FileTagData(const FileType _fileType, MyHandle _file, const size_t _subFileIdx, const bool _populated)
+            : fileType(_fileType)
+            , fileHandle(_file)
+            , subFileIdx(_subFileIdx)
+            , populated(_populated)
         { }
     };
 
@@ -328,24 +339,70 @@ namespace MetroEX {
         dlg.ShowDialog(this);
     }
 
-    // treeview
-    void MainForm::ResetTreeView() {
-        if (this->filterableTreeView->TreeView == nullptr ||
-            this->filterableTreeView->TreeView->Nodes->Count == 0 ||
-            this->filterableTreeView->TreeView->Nodes[0] == this->mOriginalRootNode) {
-            return;
+    static TreeNode^ MakeDummyNode() {
+        TreeNode^ node = gcnew TreeNode(L"...");
+        node->Tag = gcnew FileTagData(FileType::Unknown, kInvalidHandle, kInvalidValue);
+        UpdateNodeIcon(node);
+        return node;
+    }
+
+    static String^ MakeBinChunkName(const MetroConfigsDatabase::ConfigInfo& ci) {
+        return ci.nameStr.empty() ? String::Format("unknCRC32_0x{0:X}.bin", ci.nameCRC) : ToNetString(ci.nameStr);
+    }
+
+    static int CompareNodesByText(TreeNode^ a, TreeNode^ b) {
+        return String::Compare(a->Text, b->Text, StringComparison::OrdinalIgnoreCase);
+    }
+
+    static TreeNode^ FindChildNodeByText(TreeNode^ parent, String^ text) {
+        for (int i = 0; i < parent->Nodes->Count; ++i) {
+            TreeNode^ child = parent->Nodes[i];
+            if (String::Equals(child->Text, text, StringComparison::OrdinalIgnoreCase)) {
+                return child;
+            }
         }
 
-        this->filterableTreeView->TreeView->BeginUpdate();
-        this->filterableTreeView->TreeView->Nodes->Clear();
-        this->filterableTreeView->TreeView->Nodes->Add(this->mOriginalRootNode);
-        this->filterableTreeView->TreeView->EndUpdate();
+        return nullptr;
+    }
 
-        this->filterableTreeView->FilterTextBox->Text = String::Empty;
+    // treeview
+    void MainForm::ResetTreeView() {
+        if (mIsTreeFiltering) {
+            this->UpdateFilesList();
+        }
     }
 
     bool MainForm::FindAndSelect(String^ text, array<String^>^ extensions) {
-        return this->filterableTreeView->FindAndSelect(text, extensions);
+        TreeView^ treeView = this->filterableTreeView->TreeView;
+        if (treeView == nullptr || treeView->Nodes->Count == 0) {
+            return false;
+        }
+
+        array<String^>^ pathParts = text->Split(L'\\');
+
+        TreeNode^ node = treeView->Nodes[0];
+        for (int i = 0; i < pathParts->Length; ++i) {
+            // expanding populates the node's children if they aren't there yet
+            node->Expand();
+
+            TreeNode^ childNode = FindChildNodeByText(node, pathParts[i]);
+            if (childNode == nullptr && extensions != nullptr && i == (pathParts->Length - 1)) {
+                for (int j = 0; j < extensions->Length && childNode == nullptr; ++j) {
+                    childNode = FindChildNodeByText(node, pathParts[i] + extensions[j]);
+                }
+            }
+
+            if (childNode == nullptr) {
+                return false;
+            }
+
+            node = childNode;
+        }
+
+        treeView->SelectedNode = node;
+        node->EnsureVisible();
+
+        return true;
     }
 
     void MainForm::filterableTreeView_AfterSelect(System::Object^, System::Windows::Forms::TreeViewEventArgs^ e) {
@@ -354,6 +411,10 @@ namespace MetroEX {
         }
 
         FileTagData^ fileData = safe_cast<FileTagData^>(e->Node->Tag);
+        if (fileData == nullptr || fileData->fileHandle == kInvalidHandle) {
+            return;
+        }
+
         MyHandle file = fileData->fileHandle;
         const bool isSubFile = fileData->subFileIdx != kInvalidValue;
 
@@ -387,6 +448,25 @@ namespace MetroEX {
 
     void MainForm::filterableTreeView_AfterCollapse(System::Object^, System::Windows::Forms::TreeViewEventArgs^ e) {
         UpdateNodeIcon(e->Node, eNodeEventType::Close);
+    }
+
+    void MainForm::filterableTreeView_BeforeExpand(System::Object^, System::Windows::Forms::TreeViewCancelEventArgs^ e) {
+        if (e->Node == nullptr) {
+            return;
+        }
+
+        FileTagData^ fileData = safe_cast<FileTagData^>(e->Node->Tag);
+        if (fileData == nullptr || fileData->populated) {
+            return;
+        }
+
+        System::Windows::Forms::Cursor::Current = System::Windows::Forms::Cursors::WaitCursor;
+
+        this->filterableTreeView->TreeView->BeginUpdate();
+        this->PopulateNode(e->Node);
+        this->filterableTreeView->TreeView->EndUpdate();
+
+        System::Windows::Forms::Cursor::Current = System::Windows::Forms::Cursors::Arrow;
     }
 
     void MainForm::filterableTreeView_AfterExpand(System::Object^, System::Windows::Forms::TreeViewEventArgs^ e) {
@@ -615,122 +695,239 @@ namespace MetroEX {
     }
 
     void MainForm::UpdateFilesList() {
+        MetroFileSystem& mfs = MetroFileSystem::Get();
+
+        mIsTreeFiltering = false;
+
         this->filterableTreeView->TreeView->BeginUpdate();
         this->filterableTreeView->TreeView->Nodes->Clear();
 
-        MetroFileSystem& mfs = MetroFileSystem::Get();
         if (!mfs.Empty()) {
             this->filterableTreeView->FilterTextBox->Text = String::Empty;
 
             // Get idx of config.bin
-            const MyHandle configBinFile = mfs.FindFile("content\\config.bin");
+            mConfigBinFile = mfs.FindFile("content\\config.bin");
 
             String^ rootName = "FileSystem";
             if (mfs.IsSingleVFX()) {
                 rootName = ToNetString(mfs.GetVFXName(0));
             }
+
             TreeNode^ rootNode = this->filterableTreeView->TreeView->Nodes->Add(rootName);
-            size_t rootIdx = 0;
-
-            mOriginalRootNode = rootNode;
-
-            rootNode->Tag = gcnew FileTagData(FileType::Folder, rootIdx, kInvalidValue);
+            rootNode->Tag = gcnew FileTagData(FileType::Folder, mfs.GetRootFolder(), kInvalidValue);
             UpdateNodeIcon(rootNode);
 
-            const MyHandle rootDir = mfs.GetRootFolder();
-            for (const MyHandle child : CollectSortedChildren(rootDir, configBinFile)) {
-                if (mfs.IsFolder(child)) {
-                    this->AddFoldersRecursive(child, rootNode, configBinFile);
-                } else {
-                    const FileType fileType = DetectFileType(child);
-                    TreeNode^ fileNode = rootNode->Nodes->Add(ToNetString(mfs.GetName(child)));
-                    fileNode->Tag = gcnew FileTagData(fileType, child, kInvalidValue);
-                    UpdateNodeIcon(fileNode);
-                }
-            }
+            this->PopulateNode(rootNode);
         }
 
         this->filterableTreeView->TreeView->EndUpdate();
     }
 
-    void MainForm::AddFoldersRecursive(MyHandle folder, TreeNode^ rootItem, const MyHandle configBinFile) {
+    TreeNode^ MainForm::MakeFileSystemNode(const MyHandle entry) {
         MetroFileSystem& mfs = MetroFileSystem::Get();
 
-        // Add root folder
-        TreeNode^ dirLeafNode = rootItem->Nodes->Add(ToNetString(mfs.GetName(folder)));
+        const bool isFolder = mfs.IsFolder(entry);
+        const bool isBinArchive = !isFolder && entry == mConfigBinFile && mConfigsDatabase != nullptr;
 
-        dirLeafNode->Tag = gcnew FileTagData(FileType::Folder, folder, kInvalidValue);
-        UpdateNodeIcon(dirLeafNode);
-
-        // Add files and folders inside
-        for (const MyHandle child : CollectSortedChildren(folder, configBinFile)) {
-            if (mfs.IsFolder(child)) {
-                // Add folder to list
-                this->AddFoldersRecursive(child, dirLeafNode, configBinFile);
-            } else {
-                // Add file to list
-                if (child == configBinFile) {
-                    // config.bin
-                    this->AddBinaryArchive(child, dirLeafNode);
-                } else {
-                    //====> any other file
-                    const FileType fileType = DetectFileType(child);
-                    TreeNode^ fileNode = dirLeafNode->Nodes->Add(ToNetString(mfs.GetName(child)));
-                    fileNode->Tag = gcnew FileTagData(fileType, child, kInvalidValue);
-                    UpdateNodeIcon(fileNode);
-                }
-            }
+        FileType fileType = FileType::Folder;
+        if (!isFolder) {
+            fileType = isBinArchive ? FileType::BinArchive : DetectFileType(entry);
         }
+
+        TreeNode^ node = gcnew TreeNode(ToNetString(mfs.GetName(entry)));
+        FileTagData^ fileData = gcnew FileTagData(fileType, entry, kInvalidValue);
+        node->Tag = fileData;
+        UpdateNodeIcon(node);
+
+        if (isBinArchive || (isFolder && mfs.GetFirstChild(entry) != kInvalidHandle)) {
+            node->Nodes->Add(MakeDummyNode());
+        } else {
+            fileData->populated = true;
+        }
+
+        return node;
     }
 
-    void MainForm::AddBinaryArchive(MyHandle file, TreeNode^ rootItem) {
-        MetroFileSystem& mfs = MetroFileSystem::Get();
+    void MainForm::PopulateNode(TreeNode^ node) {
+        FileTagData^ fileData = safe_cast<FileTagData^>(node->Tag);
+        if (fileData == nullptr || fileData->populated) {
+            return;
+        }
 
-        TreeNode^ fileNode = rootItem->Nodes->Add(ToNetString(mfs.GetName(file)));
-        fileNode->Tag = gcnew FileTagData(FileType::BinArchive, file, kInvalidValue);
-        UpdateNodeIcon(fileNode);
+        node->Nodes->Clear();
+
+        switch (fileData->fileType) {
+            case FileType::Folder: {
+                for (const MyHandle child : CollectSortedChildren(fileData->fileHandle, mConfigBinFile)) {
+                    node->Nodes->Add(this->MakeFileSystemNode(child));
+                }
+            } break;
+
+            case FileType::BinArchive:
+            case FileType::FolderBin: {
+                this->PopulateBinArchiveNode(node, fileData->fileHandle);
+            } break;
+        }
+
+        fileData->populated = true;
+    }
+
+    void MainForm::PopulateBinArchiveNode(TreeNode^ node, const MyHandle file) {
+        if (mConfigsDatabase == nullptr) {
+            return;
+        }
+
+        // path of the node inside the .bin database, empty for the database root
+        String^ prefix = (node->Name == nullptr) ? String::Empty : node->Name;
+
+        List<String^>^ folderNames = gcnew List<String^>();
+        Dictionary<String^, int>^ knownFolders = gcnew Dictionary<String^, int>(StringComparer::OrdinalIgnoreCase);
+        List<TreeNode^>^ chunkNodes = gcnew List<TreeNode^>();
 
         for (size_t idx = 0, numFiles = mConfigsDatabase->GetNumFiles(); idx < numFiles; ++idx) {
             const MetroConfigsDatabase::ConfigInfo& ci = mConfigsDatabase->GetFileByIdx(idx);
 
-            const bool isNameDecrypted = !ci.nameStr.empty();
-
-            String^ fileName = (isNameDecrypted ?
-                ToNetString(ci.nameStr) :
-                String::Format("unknCRC32_0x{0:X}.bin", ci.nameCRC)
-            );
-
-            TreeNode^ lastNode = fileNode; // folder to add file
-            if (isNameDecrypted) {
-                array<String^>^ pathArray = fileName->Split('\\');
-                fileName = pathArray[pathArray->Length - 1];
-
-                // Add all sub-folders
-                String^ curPath = pathArray[0];
-                for (int i = 0; i < (pathArray->Length - 1); ++i) {
-                    array<TreeNode^>^ folderNodes = lastNode->Nodes->Find(curPath, false);
-                    if (folderNodes->Length == 0) {
-                        // Create new folder node
-                        String^ folderName = pathArray[i];
-
-                        lastNode = lastNode->Nodes->Add(folderName);
-                        lastNode->Tag = gcnew FileTagData(FileType::FolderBin, file, 0);
-                        lastNode->Name = curPath; // for Find()
-                        UpdateNodeIcon(lastNode);
-                    }
-                    else {
-                        // Use existing node folder
-                        lastNode = folderNodes[0];
-                    }
-
-                    curPath += "\\" + pathArray[i + 1];
-                }
+            String^ fullName = MakeBinChunkName(ci);
+            if (prefix->Length > 0 && !fullName->StartsWith(prefix, StringComparison::OrdinalIgnoreCase)) {
+                continue;
             }
 
-            // Add binary file
-            TreeNode^ chunkNode = lastNode->Nodes->Add(fileName);
-            chunkNode->Tag = gcnew FileTagData(FileType::Bin, file, idx);
+            String^ restOfPath = fullName->Substring(prefix->Length);
+            const int separator = restOfPath->IndexOf(L'\\');
+            if (separator < 0) {
+                TreeNode^ chunkNode = gcnew TreeNode(restOfPath);
+                chunkNode->Tag = gcnew FileTagData(FileType::Bin, file, idx, true);
+                UpdateNodeIcon(chunkNode);
+                chunkNodes->Add(chunkNode);
+            } else {
+                String^ folderName = restOfPath->Substring(0, separator);
+                if (!knownFolders->ContainsKey(folderName)) {
+                    knownFolders->Add(folderName, 0);
+                    folderNames->Add(folderName);
+                }
+            }
+        }
+
+        folderNames->Sort(StringComparer::OrdinalIgnoreCase);
+        chunkNodes->Sort(gcnew Comparison<TreeNode^>(&CompareNodesByText));
+
+        for each (String^ folderName in folderNames) {
+            TreeNode^ folderNode = gcnew TreeNode(folderName);
+            folderNode->Name = prefix + folderName + L"\\";
+            folderNode->Tag = gcnew FileTagData(FileType::FolderBin, file, 0);
+            UpdateNodeIcon(folderNode);
+            folderNode->Nodes->Add(MakeDummyNode());
+            node->Nodes->Add(folderNode);
+        }
+
+        for each (TreeNode^ chunkNode in chunkNodes) {
+            node->Nodes->Add(chunkNode);
+        }
+    }
+
+    void MainForm::OnTreeFilterChanged(String^ text) {
+        if (MetroFileSystem::Get().Empty()) {
+            return;
+        }
+
+        if (String::IsNullOrWhiteSpace(text)) {
+            if (mIsTreeFiltering) {
+                this->UpdateFilesList();
+            }
+        } else {
+            this->BuildFilteredTree(text);
+        }
+    }
+
+    void MainForm::BuildFilteredTree(String^ text) {
+        MetroFileSystem& mfs = MetroFileSystem::Get();
+
+        this->filterableTreeView->TreeView->BeginUpdate();
+        this->filterableTreeView->TreeView->Nodes->Clear();
+
+        String^ rootName = "FileSystem";
+        if (mfs.IsSingleVFX()) {
+            rootName = ToNetString(mfs.GetVFXName(0));
+        }
+
+        TreeNode^ rootNode = gcnew TreeNode(rootName);
+        rootNode->Tag = gcnew FileTagData(FileType::Folder, mfs.GetRootFolder(), kInvalidValue, true);
+        UpdateNodeIcon(rootNode);
+
+        this->AddFilteredChildren(rootNode, mfs.GetRootFolder(), text);
+
+        this->filterableTreeView->TreeView->Nodes->Add(rootNode);
+        rootNode->ExpandAll();
+
+        this->filterableTreeView->TreeView->EndUpdate();
+
+        mIsTreeFiltering = true;
+    }
+
+    void MainForm::AddFilteredChildren(TreeNode^ parentNode, const MyHandle folder, String^ text) {
+        MetroFileSystem& mfs = MetroFileSystem::Get();
+
+        for (const MyHandle child : CollectSortedChildren(folder, mConfigBinFile)) {
+            if (mfs.IsFolder(child)) {
+                TreeNode^ folderNode = gcnew TreeNode(ToNetString(mfs.GetName(child)));
+                folderNode->Tag = gcnew FileTagData(FileType::Folder, child, kInvalidValue, true);
+                UpdateNodeIcon(folderNode);
+
+                this->AddFilteredChildren(folderNode, child, text);
+
+                if (folderNode->Nodes->Count > 0) {
+                    parentNode->Nodes->Add(folderNode);
+                }
+            } else if (child == mConfigBinFile && mConfigsDatabase != nullptr) {
+                TreeNode^ binNode = gcnew TreeNode(ToNetString(mfs.GetName(child)));
+                binNode->Tag = gcnew FileTagData(FileType::BinArchive, child, kInvalidValue, true);
+                UpdateNodeIcon(binNode);
+
+                this->AddFilteredBinChildren(binNode, child, text);
+
+                if (binNode->Nodes->Count > 0) {
+                    parentNode->Nodes->Add(binNode);
+                }
+            } else if (ToNetString(mfs.GetName(child))->Contains(text)) {
+                parentNode->Nodes->Add(this->MakeFileSystemNode(child));
+            }
+        }
+    }
+
+    void MainForm::AddFilteredBinChildren(TreeNode^ binNode, const MyHandle file, String^ text) {
+        Dictionary<String^, TreeNode^>^ folderNodes = gcnew Dictionary<String^, TreeNode^>(StringComparer::OrdinalIgnoreCase);
+
+        for (size_t idx = 0, numFiles = mConfigsDatabase->GetNumFiles(); idx < numFiles; ++idx) {
+            const MetroConfigsDatabase::ConfigInfo& ci = mConfigsDatabase->GetFileByIdx(idx);
+
+            array<String^>^ pathParts = MakeBinChunkName(ci)->Split(L'\\');
+            String^ fileName = pathParts[pathParts->Length - 1];
+            if (!fileName->Contains(text)) {
+                continue;
+            }
+
+            TreeNode^ parentNode = binNode;
+            String^ curPath = String::Empty;
+            for (int i = 0; i < (pathParts->Length - 1); ++i) {
+                curPath += pathParts[i] + L"\\";
+
+                TreeNode^ folderNode = nullptr;
+                if (!folderNodes->TryGetValue(curPath, folderNode)) {
+                    folderNode = gcnew TreeNode(pathParts[i]);
+                    folderNode->Name = curPath;
+                    folderNode->Tag = gcnew FileTagData(FileType::FolderBin, file, 0, true);
+                    UpdateNodeIcon(folderNode);
+                    parentNode->Nodes->Add(folderNode);
+                    folderNodes->Add(curPath, folderNode);
+                }
+
+                parentNode = folderNode;
+            }
+
+            TreeNode^ chunkNode = gcnew TreeNode(fileName);
+            chunkNode->Tag = gcnew FileTagData(FileType::Bin, file, idx, true);
             UpdateNodeIcon(chunkNode);
+            parentNode->Nodes->Add(chunkNode);
         }
     }
 
