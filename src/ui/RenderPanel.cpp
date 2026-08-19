@@ -724,7 +724,7 @@ namespace MetroEX {
         if (mModel && mModel->IsAnimated() && mCurrentMotion) {
             const MetroSkeleton* skeleton = mModel->GetSkeleton();
 
-            const size_t numBones = std::min<size_t>(mCurrentMotion->GetNumBones(), skeleton->GetNumBones());
+            const size_t numBones = skeleton->GetNumBones();
             const float animLen = mCurrentMotion->GetMotionTimeInSeconds();
 
             if (animLen <= 0.0f) {
@@ -735,22 +735,17 @@ namespace MetroEX {
                 mAnimation->time -= animLen;
             }
 
+            MyArray<quat> localQ;
+            MyArray<vec3> localT;
+            mModel->CalcPose(mCurrentMotion, mAnimation->time, localQ, localT);
+
             for (size_t i = 0; i < numBones; ++i) {
                 const AnimBone& b = mAnimation->bones[i];
 
-                quat q; vec3 t;
-                if (mCurrentMotion->IsBoneAnimated(b.idx)) {
-                    q = mCurrentMotion->GetBoneRotationAtTime(b.idx, mAnimation->time);
-                    t = mCurrentMotion->GetBonePositionAtTime(b.idx, mAnimation->time);
-                } else {
-                    q = skeleton->GetBoneRotation(b.idx);
-                    t = skeleton->GetBonePosition(b.idx);
-                }
-
                 mat4& m = mConstantBufferData->bones[b.idx];
 
-                m = MatFromQuat(q);
-                m[3] = vec4(t, 1.0f);
+                m = MatFromQuat(localQ[b.idx]);
+                m[3] = vec4(localT[b.idx], 1.0f);
 
                 if (b.parentIdx != MetroBone::InvalidIdx) {
                     m = mConstantBufferData->bones[b.parentIdx] * m;

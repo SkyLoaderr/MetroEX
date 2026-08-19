@@ -1,4 +1,4 @@
-#include "MetroModel.h"
+﻿#include "MetroModel.h"
 #include "MetroFileSystem.h"
 #include "MetroTexturesDatabase.h"
 #include "MetroSkeleton.h"
@@ -12,6 +12,7 @@
 
 #include <fstream>
 #include <sstream>
+#include <functional>
 
 enum ModelChunks {
     MC_HeaderChunk          = 0x00000001,
@@ -341,7 +342,7 @@ static void CorrectAnimTrackInterpolation(MyArray<FbxNode*>& boneNodes, FbxAnimL
     }
 }
 
-static void AddAnimTrackToScene(FbxScene* scene, const MetroMotion* motion, const CharString& animName, MyArray<FbxNode*>& skelNodes) {
+static void AddAnimTrackToScene(FbxScene* scene, MetroModel* model, const MetroMotion* motion, const CharString& animName, MyArray<FbxNode*>& skelNodes) {
     FbxAnimStack* animStack = FbxAnimStack::Create(scene, animName.c_str());
     FbxAnimLayer* animLayer = FbxAnimLayer::Create(scene->GetFbxManager(), "Base_Layer");
     animStack->AddMember(animLayer);
@@ -368,15 +369,36 @@ static void AddAnimTrackToScene(FbxScene* scene, const MetroMotion* motion, cons
 
     const size_t numFrames = std::max<size_t>(motion->GetNumFrames(), 1);
 
+    MyArray<MyArray<quat>> poseQ(numFrames);
+    MyArray<MyArray<vec3>> poseT(numFrames);
+    for (size_t f = 0; f < numFrames; ++f) {
+        model->CalcPose(motion, scast<float>(f) / scast<float>(animFPS), poseQ[f], poseT[f]);
+    }
+
+    MyArray<bool> boneHasTrack(skelNodes.size(), false);
+    for (size_t i = 0; i < skelNodes.size(); ++i) {
+        boneHasTrack[i] = motion->IsBoneAnimated(i);
+    }
+    if (model->GetSkeleton() && MetroModel::GetApplyProceduralBones()) {
+        const MetroSkeleton* skel = model->GetSkeleton();
+        for (size_t i = 0; i < skel->GetNumDrivenBones(); ++i) {
+            const size_t b = skel->FindBone(skel->GetDrivenBone(i).bone);
+            if (b != MetroBone::InvalidIdx && b < boneHasTrack.size()) {
+                boneHasTrack[b] = true;
+            }
+        }
+    }
+
     for (size_t i = 0; i < skelNodes.size(); ++i) {
         FbxNode* boneNode = skelNodes[i];
 
-        if (motion->IsBoneAnimated(i)) {
+        if (boneHasTrack[i]) {
             const MetroCurve& posCurve = motion->GetBonePositionCurve(i);
             const MetroCurve& rotCurve = motion->GetBoneRotationCurve(i);
 
-            const bool posIsConst = (posCurve.GetNumPoints() < 2);
-            const bool rotIsConst = (rotCurve.GetNumPoints() < 2);
+            const bool isDrivenOnly = !motion->IsBoneAnimated(i);
+            const bool posIsConst = !isDrivenOnly && (posCurve.GetNumPoints() < 2);
+            const bool rotIsConst = !isDrivenOnly && (rotCurve.GetNumPoints() < 2);
 
             const size_t numPosKeys = posIsConst ? 1 : numFrames;
             const size_t numRotKeys = rotIsConst ? 1 : numFrames;
@@ -396,7 +418,7 @@ static void AddAnimTrackToScene(FbxScene* scene, const MetroMotion* motion, cons
 
             for (size_t f = 0; f < numPosKeys; ++f) {
                 const double t = scast<double>(f) / animFPS;
-                const FbxVector4 fv = MetroVecToFbxVec(motion->GetBonePositionAtTime(i, scast<float>(t)));
+                const FbxVector4 fv = MetroVecToFbxVec(poseT[f][i]);
 
                 keyTime.SetSecondDouble(t);
 
@@ -423,7 +445,7 @@ static void AddAnimTrackToScene(FbxScene* scene, const MetroMotion* motion, cons
 
             for (size_t f = 0; f < numRotKeys; ++f) {
                 const double t = scast<double>(f) / animFPS;
-                const FbxVector4 fv = MetroRotToFbxRot(motion->GetBoneRotationAtTime(i, scast<float>(t)));
+                const FbxVector4 fv = MetroRotToFbxRot(poseQ[f][i]);
 
                 keyTime.SetSecondDouble(t);
 
@@ -725,11 +747,11 @@ bool MetroModel::SaveAsFBX(const fs::path& filePath, const size_t options, const
     if (exportAnimation) {
         if (motionIdx != kInvalidValue) {
             const MetroMotion* motion = this->GetMotion(motionIdx);
-            AddAnimTrackToScene(scene, motion, motion->GetName(), boneNodes);
+            AddAnimTrackToScene(scene, this, motion, motion->GetName(), boneNodes);
         } else {
             for (size_t i = 0; i < this->GetNumMotions(); ++i) {
                 const MetroMotion* motion = this->GetMotion(i);
-                AddAnimTrackToScene(scene, motion, motion->GetName(), boneNodes);
+                AddAnimTrackToScene(scene, this, motion, motion->GetName(), boneNodes);
             }
         }
     }
@@ -813,6 +835,495 @@ const MetroMotion* MetroModel::GetMotion(const size_t idx) {
     }
 
     return motion;
+}
+
+const MetroMotion* MetroModel::FindMotionByName(const CharString& name) {
+    if (name.empty()) {
+        return nullptr;
+    }
+
+    for (size_t i = 0; i < mMotions.size(); ++i) {
+        if (this->GetMotionName(i) == name) {
+            return this->GetMotion(i);
+        }
+    }
+
+    return nullptr;
+}
+
+static mat4 MetroMakeLocalMat(const quat& q, const vec3& t) {
+    mat4 result = MatFromQuat(q);
+    result[3] = vec4(t, 1.0f);
+    return result;
+}
+
+static quat MetroLookAtRotation(const vec3& aimLocal, const vec3& aimWorld, const vec3& upWorld) {
+    vec3 side = Cross(aimWorld, upWorld);
+    if (Length(side) < MM_Epsilon) {
+        return quat(1.0f, 0.0f, 0.0f, 0.0f);
+    }
+    side = Normalize(side);
+
+    mat3 target;
+    target[0] = aimWorld;
+    target[1] = Cross(side, aimWorld);
+    target[2] = side;
+
+    const vec3 upLocal(0.0f, 1.0f, 0.0f);
+    vec3 sideLocal = Cross(aimLocal, upLocal);
+    if (Length(sideLocal) < MM_Epsilon) {
+        sideLocal = Cross(aimLocal, vec3(0.0f, 0.0f, 1.0f));
+        if (Length(sideLocal) < MM_Epsilon) {
+            return quat(1.0f, 0.0f, 0.0f, 0.0f);
+        }
+    }
+    sideLocal = Normalize(sideLocal);
+
+    mat3 local;
+    local[0] = aimLocal;
+    local[1] = Cross(sideLocal, aimLocal);
+    local[2] = sideLocal;
+
+    return Normalize(quat(target * glm::transpose(local)));
+}
+
+static float MetroCalcDrivenValue(const mat4& driver, const mat4& driverParent, const uint8_t component) {
+    static const float kRad2Deg = 57.29578f;
+
+    const mat3 rel = glm::transpose(mat3(driverParent)) * mat3(driver);
+
+    auto at = [&rel](const int row, const int col) { return rel[col][row]; };
+
+    switch (component) {
+        case MetroProceduralComponent::AxisX:
+        case MetroProceduralComponent::AxisXNeg: {
+            const float v = -std::atan2f(-at(1, 2), at(1, 1)) * kRad2Deg;
+            return (component == MetroProceduralComponent::AxisXNeg) ? -v : v;
+        }
+
+        case MetroProceduralComponent::AxisY:
+        case MetroProceduralComponent::AxisYNeg: {
+            const float v = -std::atan2f(-at(2, 0), at(0, 0)) * kRad2Deg;
+            return (component == MetroProceduralComponent::AxisYNeg) ? -v : v;
+        }
+
+        case MetroProceduralComponent::AxisZ:
+        case MetroProceduralComponent::AxisZNeg: {
+            const float v = -std::asinf(Clamp(at(1, 0), -1.0f, 1.0f)) * kRad2Deg;
+            return (component == MetroProceduralComponent::AxisZNeg) ? -v : v;
+        }
+
+        case MetroProceduralComponent::OffsetX: return driver[3].x - driverParent[3].x;
+        case MetroProceduralComponent::OffsetY: return driver[3].y - driverParent[3].y;
+        case MetroProceduralComponent::OffsetZ: return driver[3].z - driverParent[3].z;
+        case MetroProceduralComponent::Offset:  return Length(vec3(driver[3] - driverParent[3]));
+
+        default: return 0.0f;
+    }
+}
+
+static bool sApplyProceduralBones = true;
+
+static const bool sApplyConstrainedBones = true;
+
+bool MetroModel::GetApplyProceduralBones() {
+    return sApplyProceduralBones;
+}
+
+void MetroModel::SetApplyProceduralBones(const bool apply) {
+    sApplyProceduralBones = apply;
+}
+
+void MetroModel::BuildProceduralCache() {
+    if (mProceduralCache.built || !mSkeleton) {
+        return;
+    }
+    mProceduralCache.built = true;
+
+    const size_t numBones = mSkeleton->GetNumBones();
+
+    MyArray<size_t>& order = mProceduralCache.boneOrder;
+    order.reserve(numBones);
+    MyArray<bool> placed(numBones, false);
+    std::function<void(const size_t)> place = [&](const size_t idx) {
+        if (placed[idx]) {
+            return;
+        }
+        placed[idx] = true;
+        const size_t parentIdx = mSkeleton->GetBoneParentIdx(idx);
+        if (parentIdx != MetroBone::InvalidIdx) {
+            place(parentIdx);
+        }
+        order.push_back(idx);
+    };
+    for (size_t i = 0; i < numBones; ++i) {
+        place(i);
+    }
+
+    mProceduralCache.children.resize(numBones);
+    for (size_t i = 0; i < numBones; ++i) {
+        const size_t parentIdx = mSkeleton->GetBoneParentIdx(i);
+        if (parentIdx != MetroBone::InvalidIdx) {
+            mProceduralCache.children[parentIdx].push_back(i);
+        }
+    }
+
+    std::function<ProceduralSource(const CharString&)> resolve = [&](const CharString& name) -> ProceduralSource {
+        ProceduralSource src = { MetroBone::InvalidIdx, mat4(1.0f), mat4(1.0f), false };
+
+        const size_t boneIdx = mSkeleton->FindBone(name);
+        if (boneIdx != MetroBone::InvalidIdx) {
+            src.boneIdx = boneIdx;
+            src.bindGlobal = mSkeleton->GetBoneFullTransform(boneIdx);
+            src.valid = true;
+            return src;
+        }
+
+        const size_t auxIdx = mSkeleton->FindAuxBone(name);
+        if (auxIdx == MetroBone::InvalidIdx) {
+            return src;
+        }
+
+        const MetroAuxBone& aux = mSkeleton->GetAuxBone(auxIdx);
+        const mat4 local = MetroMakeLocalMat(aux.q, aux.t);
+        if (aux.parent.empty()) {
+            src.localChain = local;
+            src.bindGlobal = local;
+            src.valid = true;
+            return src;
+        }
+
+        const ProceduralSource parent = resolve(aux.parent);
+        if (!parent.valid) {
+            return src;
+        }
+
+        src.boneIdx = parent.boneIdx;
+        src.localChain = parent.localChain * local;
+        src.bindGlobal = parent.bindGlobal * local;
+        src.valid = true;
+        return src;
+    };
+
+    const size_t numDriven = mSkeleton->GetNumDrivenBones();
+    mProceduralCache.driven.resize(numDriven);
+    for (size_t i = 0; i < numDriven; ++i) {
+        const MetroDrivenBone& rule = mSkeleton->GetDrivenBone(i);
+        DrivenRuleCache& c = mProceduralCache.driven[i];
+
+        c.targetIdx = mSkeleton->FindBone(rule.bone);
+        c.driver = resolve(rule.driver);
+        c.driverParent = resolve(rule.driver_parent);
+        c.twister = this->FindMotionByName(rule.twister);
+        c.span = 0;
+        c.additive = false;
+
+        if (c.twister && c.twister->GetNumFrames()) {
+            const size_t numFrames = c.twister->GetNumFrames();
+            c.span = c.twister->IsLooped() ? numFrames : std::max<size_t>(numFrames - 1, 1);
+            c.additive = c.twister->IsAdditive();
+        }
+    }
+
+    auto cacheSet = [&](const MetroParentBones& set, const size_t selfIdx,
+                        MyArray<ProceduralWeight>& out, bool& outDriven) {
+        outDriven = false;
+        for (const MetroParentBone& p : set.bones) {
+            if (p.weight < MetroParentBones::kMinWeight) {
+                continue;
+            }
+            const ProceduralSource src = resolve(p.bone);
+            if (!src.valid) {
+                continue;
+            }
+            out.push_back({ src, p.weight });
+            if (src.boneIdx != selfIdx) {
+                outDriven = true;
+            }
+        }
+    };
+
+    const size_t numConstrained = mSkeleton->GetNumConstrainedBones();
+    mProceduralCache.constrained.resize(numConstrained);
+    for (size_t i = 0; i < numConstrained; ++i) {
+        const MetroConstrainedBone& rule = mSkeleton->GetConstrainedBone(i);
+        ConstrainedCache& c = mProceduralCache.constrained[i];
+
+        c.targetIdx = mSkeleton->FindBone(rule.bone);
+        bool upDriven = false;
+        cacheSet(rule.position, c.targetIdx, c.position, c.posDriven);
+        cacheSet(rule.orientation, c.targetIdx, c.orientation, c.oriDriven);
+        cacheSet(rule.up, c.targetIdx, c.up, upDriven);
+    }
+}
+
+void MetroModel::ApplyDrivenBones(const MetroMotion* motion, MyArray<quat>& localQ, MyArray<vec3>& localT) {
+    const size_t numRefs = mSkeleton ? mSkeleton->GetNumProceduralRefs() : 0;
+    if (!numRefs || !sApplyProceduralBones) {
+        return;
+    }
+
+    this->BuildProceduralCache();
+
+    const size_t numBones = mSkeleton->GetNumBones();
+    const MyArray<size_t>& order = mProceduralCache.boneOrder;
+
+    MyArray<mat4> full(numBones);
+    for (const size_t idx : order) {
+        const mat4 m = MetroMakeLocalMat(localQ[idx], localT[idx]);
+        const size_t parentIdx = mSkeleton->GetBoneParentIdx(idx);
+        full[idx] = (parentIdx == MetroBone::InvalidIdx) ? m : (full[parentIdx] * m);
+    }
+
+    MyArray<size_t> refreshStack;
+    auto refreshKids = [&](const size_t root) {
+        refreshStack.clear();
+        refreshStack.push_back(root);
+        while (!refreshStack.empty()) {
+            const size_t idx = refreshStack.back();
+            refreshStack.pop_back();
+
+            const mat4 m = MetroMakeLocalMat(localQ[idx], localT[idx]);
+            const size_t parentIdx = mSkeleton->GetBoneParentIdx(idx);
+            full[idx] = (parentIdx == MetroBone::InvalidIdx) ? m : (full[parentIdx] * m);
+
+            for (const size_t kid : mProceduralCache.children[idx]) {
+                refreshStack.push_back(kid);
+            }
+        }
+    };
+
+    auto globalOf = [&](const ProceduralSource& src) {
+        return (src.boneIdx == MetroBone::InvalidIdx) ? src.localChain : (full[src.boneIdx] * src.localChain);
+    };
+
+    struct DrivenResult { quat q; vec3 t; bool valid; bool additive; };
+    MyArray<DrivenResult> results(numBones, { quat(1.0f, 0.0f, 0.0f, 0.0f), vec3(0.0f), false, false });
+
+    auto applyDrivenRule = [&](const size_t ruleIdx) {
+        const DrivenRuleCache& cached = mProceduralCache.driven[ruleIdx];
+        const size_t targetIdx = cached.targetIdx;
+
+        if (targetIdx == MetroBone::InvalidIdx || !cached.twister || !cached.span) {
+            return;
+        }
+        if (motion && motion->IsBoneAnimated(targetIdx)) {
+            return;
+        }
+        if (!cached.driver.valid || !cached.driverParent.valid) {
+            return;
+        }
+
+        const MetroDrivenBone& driven = mSkeleton->GetDrivenBone(ruleIdx);
+        const float value = MetroCalcDrivenValue(globalOf(cached.driver), globalOf(cached.driverParent), driven.component);
+
+        const float range = driven.value_max - driven.value_min;
+        const float k = (range != 0.0f) ? Clamp((value - driven.value_min) / range, 0.0f, 1.0f) : 0.0f;
+        const float time = k * scast<float>(cached.span) / scast<float>(MetroMotion::kFrameRate);
+
+        quat q;
+        vec3 t;
+        if (cached.twister->IsBoneAnimated(targetIdx)) {
+            q = cached.twister->GetBoneRotationAtTime(targetIdx, time);
+            t = cached.twister->GetBonePositionAtTime(targetIdx, time);
+        } else if (cached.additive) {
+            return;
+        } else {
+            q = Normalize(mSkeleton->GetBoneRotation(targetIdx));
+            t = mSkeleton->GetBonePosition(targetIdx);
+        }
+
+        DrivenResult& r = results[targetIdx];
+        if (!r.valid) {
+            r.q = q;
+            r.t = t;
+            r.valid = true;
+            r.additive = cached.additive;
+        } else if (r.additive == cached.additive) {
+            r.t = r.t + QuatRotate(r.q, t);
+            r.q = r.q * q;
+        } else {
+            const quat baseQ = r.additive ? q : r.q;
+            const vec3 baseT = r.additive ? t : r.t;
+            const quat deltaQ = r.additive ? r.q : q;
+            const vec3 deltaT = r.additive ? r.t : t;
+
+            r.q = Normalize(baseQ * deltaQ);
+            r.t = baseT + deltaT;
+            r.additive = false;
+        }
+    };
+
+    auto blendSet = [&](const MyArray<ProceduralWeight>& set, const size_t selfIdx, const bool atBind,
+                        quat& outQ, vec3& outT) {
+        outQ = quat(1.0f, 0.0f, 0.0f, 0.0f);
+        outT = vec3(0.0f);
+
+        const mat4& selfMat = atBind ? mSkeleton->GetBoneFullTransform(selfIdx) : full[selfIdx];
+        const quat ownQ = Normalize(QuatFromMat(selfMat));
+
+        float total = 0.0f;
+        for (const ProceduralWeight& p : set) {
+            const mat4 m = atBind ? p.source.bindGlobal : globalOf(p.source);
+
+            quat q = Normalize(QuatFromMat(m));
+            if (Dot(vec4(q.x, q.y, q.z, q.w), vec4(ownQ.x, ownQ.y, ownQ.z, ownQ.w)) < 0.0f) {
+                q = quat(-q.w, -q.x, -q.y, -q.z);
+            }
+
+            total += p.weight;
+            float f = p.weight / total;
+            if (Dot(vec4(q.x, q.y, q.z, q.w), vec4(outQ.x, outQ.y, outQ.z, outQ.w)) < 0.0f) {
+                f = -f;
+            }
+
+            const vec4 mixed = vec4(outQ.x, outQ.y, outQ.z, outQ.w) * (1.0f - fabsf(f)) +
+                               vec4(q.x, q.y, q.z, q.w) * f;
+            outQ = Normalize(quat(mixed.w, mixed.x, mixed.y, mixed.z));
+            outT = outT + (vec3(m[3]) - outT) * (p.weight / total);
+        }
+    };
+
+    auto axisVector = [](const uint8_t component) -> vec3 {
+        switch (component) {
+            case MetroProceduralComponent::AxisY:    return vec3(0.0f, 1.0f, 0.0f);
+            case MetroProceduralComponent::AxisZ:    return vec3(1.0f, 0.0f, 0.0f);
+            case MetroProceduralComponent::AxisXNeg: return vec3(0.0f, 0.0f, -1.0f);
+            case MetroProceduralComponent::AxisYNeg: return vec3(0.0f, -1.0f, 0.0f);
+            case MetroProceduralComponent::AxisZNeg: return vec3(-1.0f, 0.0f, 0.0f);
+            default:                                 return vec3(0.0f, 0.0f, 1.0f);
+        }
+    };
+
+    auto applyConstrained = [&](const size_t constrainedIdx, const bool lookAt) {
+        const ConstrainedCache& cached = mProceduralCache.constrained[constrainedIdx];
+        const size_t targetIdx = cached.targetIdx;
+
+        if (targetIdx == MetroBone::InvalidIdx || (!cached.posDriven && !cached.oriDriven)) {
+            return;
+        }
+        if (motion && motion->IsBoneAnimated(targetIdx)) {
+            return;
+        }
+
+        quat posQnow, oriQnow, upQnow, posQbind, oriQbind;
+        vec3 posTnow, oriTnow, upTnow, posTbind, oriTbind;
+        blendSet(cached.position, targetIdx, false, posQnow, posTnow);
+        blendSet(cached.orientation, targetIdx, false, oriQnow, oriTnow);
+        blendSet(cached.up, targetIdx, false, upQnow, upTnow);
+        blendSet(cached.position, targetIdx, true, posQbind, posTbind);
+        blendSet(cached.orientation, targetIdx, true, oriQbind, oriTbind);
+
+        const MetroConstrainedBone& rule = mSkeleton->GetConstrainedBone(constrainedIdx);
+        const mat4 bindMat = mSkeleton->GetBoneFullTransform(targetIdx);
+        const vec3 worldPos = vec3(full[targetIdx][3]);
+        quat worldRot;
+
+        if (lookAt) {
+            worldRot = Normalize(QuatFromMat(full[targetIdx]));
+
+            const vec3 aimWorld = posTnow - worldPos;
+            if (cached.posDriven && Length(aimWorld) > MM_Epsilon) {
+                const quat upFrame = (rule.uptype == MetroUpType::ObjectRotationUp) ? upQnow : oriQnow;
+
+                vec3 upWorld;
+                if (rule.uptype == MetroUpType::ObjectUp) {
+                    upWorld = upTnow - worldPos;
+                } else {
+                    upWorld = QuatRotate(upFrame, vec3(0.0f, 1.0f, 0.0f));
+                }
+
+                if (Length(upWorld) > MM_Epsilon) {
+                    const quat aimed = MetroLookAtRotation(axisVector(rule.look_at_axis),
+                                                           Normalize(aimWorld), Normalize(upWorld));
+                    if (aimed.w != 1.0f || aimed.x != 0.0f || aimed.y != 0.0f || aimed.z != 0.0f) {
+                        worldRot = aimed;
+                    }
+                }
+            }
+        } else {
+            worldRot = Normalize(QuatFromMat(full[targetIdx]));
+            if (cached.oriDriven) {
+                worldRot = Normalize((oriQnow * QuatConjugate(oriQbind)) * Normalize(QuatFromMat(bindMat)));
+            }
+        }
+
+        const size_t parentIdx = mSkeleton->GetBoneParentIdx(targetIdx);
+        const mat4 parentMat = (parentIdx == MetroBone::InvalidIdx) ? mat4(1.0f) : full[parentIdx];
+
+        mat4 desired = MatFromQuat(worldRot);
+        desired[3] = vec4(worldPos, 1.0f);
+
+        const mat4 local = MatInverse(parentMat) * desired;
+        localQ[targetIdx] = Normalize(QuatFromMat(local));
+        localT[targetIdx] = vec3(local[3]);
+        refreshKids(targetIdx);
+    };
+
+    size_t pendingTarget = MetroBone::InvalidIdx;
+    auto flushDriven = [&]() {
+        if (pendingTarget == MetroBone::InvalidIdx) {
+            return;
+        }
+        const DrivenResult& r = results[pendingTarget];
+        if (r.valid) {
+            localQ[pendingTarget] = Normalize(r.q);
+            localT[pendingTarget] = r.t;
+            refreshKids(pendingTarget);
+        }
+        pendingTarget = MetroBone::InvalidIdx;
+    };
+
+    for (size_t i = 0; i < numRefs; ++i) {
+        const MetroProceduralRef& ref = mSkeleton->GetProceduralRef(i);
+
+        if (ref.type == MetroProceduralType::Driven) {
+            if (ref.index_in_array >= mProceduralCache.driven.size()) {
+                continue;
+            }
+            const size_t targetIdx = mProceduralCache.driven[ref.index_in_array].targetIdx;
+            if (targetIdx != pendingTarget) {
+                flushDriven();
+                pendingTarget = targetIdx;
+                if (targetIdx != MetroBone::InvalidIdx) {
+                    results[targetIdx] = { quat(1.0f, 0.0f, 0.0f, 0.0f), vec3(0.0f), false, false };
+                }
+            }
+            applyDrivenRule(ref.index_in_array);
+        } else if (ref.type == MetroProceduralType::PosRotConstrained ||
+                   ref.type == MetroProceduralType::LookAtConstrained) {
+            flushDriven();
+            if (sApplyConstrainedBones && ref.index_in_array < mProceduralCache.constrained.size()) {
+                applyConstrained(ref.index_in_array, ref.type == MetroProceduralType::LookAtConstrained);
+            }
+        }
+    }
+    flushDriven();
+}
+
+void MetroModel::CalcPose(const MetroMotion* motion, const float time,
+                          MyArray<quat>& outLocalQ, MyArray<vec3>& outLocalT) {
+    if (!mSkeleton) {
+        outLocalQ.clear();
+        outLocalT.clear();
+        return;
+    }
+
+    const size_t numBones = mSkeleton->GetNumBones();
+    outLocalQ.resize(numBones);
+    outLocalT.resize(numBones);
+
+    for (size_t i = 0; i < numBones; ++i) {
+        if (motion && motion->IsBoneAnimated(i)) {
+            outLocalQ[i] = motion->GetBoneRotationAtTime(i, time);
+            outLocalT[i] = motion->GetBonePositionAtTime(i, time);
+        } else {
+            outLocalQ[i] = Normalize(mSkeleton->GetBoneRotation(i));
+            outLocalT[i] = mSkeleton->GetBonePosition(i);
+        }
+    }
+
+    this->ApplyDrivenBones(motion, outLocalQ, outLocalT);
 }
 
 const CharString& MetroModel::GetComment() const {
@@ -1188,3 +1699,8 @@ void MetroModel::LoadMotions() {
         ++i;
     }
 }
+
+
+
+
+

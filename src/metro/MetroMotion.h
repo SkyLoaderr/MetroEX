@@ -98,6 +98,13 @@ private:
 };
 
 
+struct MetroMotionFlags {
+    enum : size_t {
+        Looped      = 0x0002,
+        Additive    = 0x0040,
+    };
+};
+
 class MetroMotion {
 public:
     static const size_t kFrameRate = 30;
@@ -115,6 +122,8 @@ public:
     size_t                  GetNumBones() const;
     size_t                  GetNumLocators() const;
     size_t                  GetNumFrames() const;
+    bool                    IsLooped() const;
+    bool                    IsAdditive() const;
     float                   GetMotionTimeInSeconds() const;
 
     bool                    IsBoneAnimated(const size_t boneIdx) const;
@@ -125,6 +134,8 @@ public:
 
     const MetroCurve&       GetBoneRotationCurve(const size_t boneIdx) const;
     const MetroCurve&       GetBonePositionCurve(const size_t boneIdx) const;
+    const MetroCurve&       GetBoneScaleCurve(const size_t boneIdx) const;
+    vec3                    GetBoneScaleAtTime(const size_t boneIdx, const float time) const;
 
 private:
     struct ChunkInfo {

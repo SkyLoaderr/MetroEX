@@ -557,6 +557,14 @@ size_t MetroMotion::GetNumFrames() const {
     return mNumFrames;
 }
 
+bool MetroMotion::IsLooped() const {
+    return !!(mFlags & MetroMotionFlags::Looped);
+}
+
+bool MetroMotion::IsAdditive() const {
+    return !!(mFlags & MetroMotionFlags::Additive);
+}
+
 float MetroMotion::GetMotionTimeInSeconds() const {
     return scast<float>(mNumFrames) / scast<float>(kFrameRate);
 }
@@ -573,6 +581,16 @@ const MetroCurve& MetroMotion::GetBoneRotationCurve(const size_t boneIdx) const 
 const MetroCurve& MetroMotion::GetBonePositionCurve(const size_t boneIdx) const {
     static const MetroCurve kEmptyCurve;
     return (boneIdx < mBonesPositions.size()) ? mBonesPositions[boneIdx] : kEmptyCurve;
+}
+
+const MetroCurve& MetroMotion::GetBoneScaleCurve(const size_t boneIdx) const {
+    static const MetroCurve kEmptyCurve;
+    return (boneIdx < mBonesScales.size()) ? mBonesScales[boneIdx] : kEmptyCurve;
+}
+
+vec3 MetroMotion::GetBoneScaleAtTime(const size_t boneIdx, const float time) const {
+    const vec4 v = this->GetBoneScaleCurve(boneIdx).Evaluate(time, vec4(1.0f, 1.0f, 1.0f, 0.0f));
+    return vec3(v);
 }
 
 quat MetroMotion::GetBoneRotationAtTime(const size_t boneIdx, const float time) const {

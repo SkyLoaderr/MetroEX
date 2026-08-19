@@ -141,6 +141,22 @@ inline vec3 QuatRotate(const quat& q, const vec3& v) {
 inline quat QuatSlerp(const quat& a, const quat& b, const float t) {
     return glm::slerp(a, b, t);
 }
+inline quat QuatConjugate(const quat& q) {
+    return glm::conjugate(q);
+}
+inline quat QuatFromMat(const mat4& m) {
+    return glm::quat_cast(m);
+}
+inline quat QuatShortestArc(const vec3& from, const vec3& to) {
+    return glm::rotation(from, to);
+}
+inline quat QuatTwistAbout(const quat& q, const vec3& axis) {
+    const vec3 v(q.x, q.y, q.z);
+    const vec3 projected = axis * glm::dot(v, axis);
+    const quat twist(q.w, projected.x, projected.y, projected.z);
+    const float len = glm::length(vec4(twist.x, twist.y, twist.z, twist.w));
+    return (len > 1e-6f) ? glm::normalize(twist) : quat(1.0f, 0.0f, 0.0f, 0.0f);
+}
 inline vec3 QuatToEuler(const quat& q) {
     return glm::eulerAngles(q);
 }
