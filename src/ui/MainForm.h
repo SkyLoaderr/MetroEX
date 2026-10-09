@@ -54,6 +54,7 @@ namespace MetroEX {
         bool        mdlSaveLods;
         // textures
         bool        txUseBC3;
+        bool        txWithAllMips;
         bool        txSaveAsDds;
         bool        txSaveAsTga;
         bool        txSaveAsPng;
@@ -151,6 +152,8 @@ namespace MetroEX {
     private: System::Windows::Forms::ContextMenuStrip^  ctxMenuExportFolder;
     private: System::Windows::Forms::ToolStripMenuItem^  saveAsDDSToolStripMenuItem;
     private: System::Windows::Forms::ToolStripMenuItem^  saveAsLegacyDDSToolStripMenuItem;
+    private: System::Windows::Forms::ToolStripMenuItem^  saveAsDDSAllMipsToolStripMenuItem;
+    private: System::Windows::Forms::ToolStripMenuItem^  saveAsLegacyDDSAllMipsToolStripMenuItem;
     private: System::Windows::Forms::ToolStripMenuItem^  saveAsTGAToolStripMenuItem;
     private: System::Windows::Forms::ToolStripMenuItem^  saveAsPNGToolStripMenuItem;
     private: System::Windows::Forms::ToolStripMenuItem^  extractFileToolStripMenuItem;
@@ -239,6 +242,8 @@ private: System::Windows::Forms::ToolStripMenuItem^  saveSurfaceSetToolStripMenu
             this->ctxMenuExportTexture = (gcnew System::Windows::Forms::ContextMenuStrip(this->components));
             this->saveAsDDSToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
             this->saveAsLegacyDDSToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
+            this->saveAsDDSAllMipsToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
+            this->saveAsLegacyDDSAllMipsToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
             this->saveAsTGAToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
             this->saveAsPNGToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
             this->ctxMenuExportModel = (gcnew System::Windows::Forms::ContextMenuStrip(this->components));
@@ -431,39 +436,53 @@ private: System::Windows::Forms::ToolStripMenuItem^  saveSurfaceSetToolStripMenu
             // 
             // ctxMenuExportTexture
             // 
-            this->ctxMenuExportTexture->Items->AddRange(gcnew cli::array< System::Windows::Forms::ToolStripItem^  >(6) {
+            this->ctxMenuExportTexture->Items->AddRange(gcnew cli::array< System::Windows::Forms::ToolStripItem^  >(8) {
                 this->saveAsDDSToolStripMenuItem,
-                    this->saveAsLegacyDDSToolStripMenuItem, this->saveAsTGAToolStripMenuItem, this->saveAsPNGToolStripMenuItem, this->toolStripSeparator9,
+                    this->saveAsLegacyDDSToolStripMenuItem, this->saveAsDDSAllMipsToolStripMenuItem, this->saveAsLegacyDDSAllMipsToolStripMenuItem, this->saveAsTGAToolStripMenuItem, this->saveAsPNGToolStripMenuItem, this->toolStripSeparator9,
                     this->saveSurfaceSetToolStripMenuItem
             });
             this->ctxMenuExportTexture->Name = L"ctxMenuExportTexture";
-            this->ctxMenuExportTexture->Size = System::Drawing::Size(184, 142);
+            this->ctxMenuExportTexture->Size = System::Drawing::Size(250, 186);
             // 
             // saveAsDDSToolStripMenuItem
             // 
             this->saveAsDDSToolStripMenuItem->Name = L"saveAsDDSToolStripMenuItem";
-            this->saveAsDDSToolStripMenuItem->Size = System::Drawing::Size(183, 22);
+            this->saveAsDDSToolStripMenuItem->Size = System::Drawing::Size(249, 22);
             this->saveAsDDSToolStripMenuItem->Text = L"Save as DDS...";
             this->saveAsDDSToolStripMenuItem->Click += gcnew System::EventHandler(this, &MainForm::saveAsDDSToolStripMenuItem_Click);
             // 
             // saveAsLegacyDDSToolStripMenuItem
             // 
             this->saveAsLegacyDDSToolStripMenuItem->Name = L"saveAsLegacyDDSToolStripMenuItem";
-            this->saveAsLegacyDDSToolStripMenuItem->Size = System::Drawing::Size(183, 22);
+            this->saveAsLegacyDDSToolStripMenuItem->Size = System::Drawing::Size(249, 22);
             this->saveAsLegacyDDSToolStripMenuItem->Text = L"Save as legacy DDS...";
             this->saveAsLegacyDDSToolStripMenuItem->Click += gcnew System::EventHandler(this, &MainForm::saveAsLegacyDDSToolStripMenuItem_Click);
+            //
+            // saveAsDDSAllMipsToolStripMenuItem
+            //
+            this->saveAsDDSAllMipsToolStripMenuItem->Name = L"saveAsDDSAllMipsToolStripMenuItem";
+            this->saveAsDDSAllMipsToolStripMenuItem->Size = System::Drawing::Size(249, 22);
+            this->saveAsDDSAllMipsToolStripMenuItem->Text = L"Save as DDS (all mips)...";
+            this->saveAsDDSAllMipsToolStripMenuItem->Click += gcnew System::EventHandler(this, &MainForm::saveAsDDSAllMipsToolStripMenuItem_Click);
+            //
+            // saveAsLegacyDDSAllMipsToolStripMenuItem
+            //
+            this->saveAsLegacyDDSAllMipsToolStripMenuItem->Name = L"saveAsLegacyDDSAllMipsToolStripMenuItem";
+            this->saveAsLegacyDDSAllMipsToolStripMenuItem->Size = System::Drawing::Size(249, 22);
+            this->saveAsLegacyDDSAllMipsToolStripMenuItem->Text = L"Save as legacy DDS (all mips)...";
+            this->saveAsLegacyDDSAllMipsToolStripMenuItem->Click += gcnew System::EventHandler(this, &MainForm::saveAsLegacyDDSAllMipsToolStripMenuItem_Click);
             // 
             // saveAsTGAToolStripMenuItem
             // 
             this->saveAsTGAToolStripMenuItem->Name = L"saveAsTGAToolStripMenuItem";
-            this->saveAsTGAToolStripMenuItem->Size = System::Drawing::Size(183, 22);
+            this->saveAsTGAToolStripMenuItem->Size = System::Drawing::Size(249, 22);
             this->saveAsTGAToolStripMenuItem->Text = L"Save as TGA...";
             this->saveAsTGAToolStripMenuItem->Click += gcnew System::EventHandler(this, &MainForm::saveAsTGAToolStripMenuItem_Click);
             // 
             // saveAsPNGToolStripMenuItem
             // 
             this->saveAsPNGToolStripMenuItem->Name = L"saveAsPNGToolStripMenuItem";
-            this->saveAsPNGToolStripMenuItem->Size = System::Drawing::Size(183, 22);
+            this->saveAsPNGToolStripMenuItem->Size = System::Drawing::Size(249, 22);
             this->saveAsPNGToolStripMenuItem->Text = L"Save as PNG...";
             this->saveAsPNGToolStripMenuItem->Click += gcnew System::EventHandler(this, &MainForm::saveAsPNGToolStripMenuItem_Click);
             // 
@@ -852,6 +871,8 @@ private: System::Windows::Forms::ToolStripMenuItem^  saveSurfaceSetToolStripMenu
         void extractFileToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e);
         void saveAsDDSToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e);
         void saveAsLegacyDDSToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e);
+        void saveAsDDSAllMipsToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e);
+        void saveAsLegacyDDSAllMipsToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e);
         void saveAsTGAToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e);
         void saveAsPNGToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e);
         void saveSurfaceSetToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e);

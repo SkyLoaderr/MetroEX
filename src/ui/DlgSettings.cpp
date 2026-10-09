@@ -20,6 +20,12 @@ namespace MetroEX {
             case MEXSettings::Extraction::TexFormat::Png: {
                 this->radioTexAsPNG->Checked = true;
             } break;
+            case MEXSettings::Extraction::TexFormat::DdsAllMips: {
+                this->radioTexAsDDSAllMips->Checked = true;
+            } break;
+            case MEXSettings::Extraction::TexFormat::LegacyDdsAllMips: {
+                this->radioTexAsLegacyDDSAllMips->Checked = true;
+            } break;
         }
 
         // models
@@ -65,6 +71,10 @@ namespace MetroEX {
             s.extraction.textureFormat = MEXSettings::Extraction::TexFormat::Dds;
         } else if (this->radioTexAsLegacyDDS->Checked) {
             s.extraction.textureFormat = MEXSettings::Extraction::TexFormat::LegacyDds;
+        } else if (this->radioTexAsDDSAllMips->Checked) {
+            s.extraction.textureFormat = MEXSettings::Extraction::TexFormat::DdsAllMips;
+        } else if (this->radioTexAsLegacyDDSAllMips->Checked) {
+            s.extraction.textureFormat = MEXSettings::Extraction::TexFormat::LegacyDdsAllMips;
         } else if (this->radioTexAsTGA->Checked) {
             s.extraction.textureFormat = MEXSettings::Extraction::TexFormat::Tga;
         } else {

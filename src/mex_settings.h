@@ -35,7 +35,9 @@ public:
             Dds,        // Dx10+
             LegacyDds,  // Dx9
             Tga,
-            Png
+            Png,
+            DdsAllMips,         // Dx10+, big textures merged with lower mips
+            LegacyDdsAllMips    // Dx9, big textures merged with lower mips
         };
         enum class SndFormat : size_t {
             Ogg,

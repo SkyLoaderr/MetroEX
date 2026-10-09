@@ -89,6 +89,18 @@ static size_t NumMipsFromResolution(const size_t resolution) {
     return result;
 }
 
+static size_t CalcCompressedSize(const MetroTexture::PixelFormat format, const size_t width, const size_t height, const size_t numMips) {
+    switch (format) {
+        case MetroTexture::PixelFormat::BC1:
+            return DDS_GetCompressedSizeBC1(width, height, numMips);
+        case MetroTexture::PixelFormat::BC3:
+        case MetroTexture::PixelFormat::BC7:
+            return DDS_GetCompressedSizeBC7(width, height, numMips);
+        default:
+            return 0;
+    }
+}
+
 
 MetroTexture::MetroTexture()
     : mIsCubemap(false)
@@ -104,8 +116,11 @@ MetroTexture::~MetroTexture() {
 }
 
 
-bool MetroTexture::LoadFromData(MemStream& stream, const MyHandle file) {
+bool MetroTexture::LoadFromData(MemStream& stream, const MyHandle file, const bool withAllMips) {
     bool result = false;
+
+    // remember the format before loading, lower mips must be loaded with the same hint
+    const PixelFormat formatHint = mFormat;
 
     const uint8_t* data = stream.GetDataAtCursor();
     const size_t length = stream.Remains();
@@ -140,7 +155,7 @@ bool MetroTexture::LoadFromData(MemStream& stream, const MyHandle file) {
                 if (textureFile != kInvalidHandle) {
                     MemStream stream = mfs.OpenFileStream(textureFile);
                     if (stream) {
-                        return this->LoadFromData(stream, textureFile);
+                        return this->LoadFromData(stream, textureFile, withAllMips);
                     }
                 }
             }
@@ -263,6 +278,11 @@ bool MetroTexture::LoadFromData(MemStream& stream, const MyHandle file) {
                         result = true;
                     }
                 }
+
+                // big textures (.1024, .2048, ...) store only the top mip, the rest of the chain lives in the smaller ones
+                if (result && withAllMips && dimension > 512) {
+                    this->AppendLowerMips(file, dimension, formatHint);
+                }
             }
         }
     }
@@ -317,6 +337,15 @@ bool MetroTexture::SaveAsDDS(const fs::path& filePath) {
     DDS_HEADER_DXT10 dx10Hdr;
     DDS_MakeDX10Headers(ddsHdr, dx10Hdr, mWidth, mHeight, mNumMips, mIsCubemap);
 
+    // DDS_MakeDX10Headers always assumes BC7, but older games use BC1/BC3
+    if (!mIsCubemap) {
+        if (mFormat == PixelFormat::BC1) {
+            dx10Hdr.dxgiFormat = DXGI_FORMAT_BC1_UNORM;
+        } else if (mFormat == PixelFormat::BC3) {
+            dx10Hdr.dxgiFormat = DXGI_FORMAT_BC3_UNORM;
+        }
+    }
+
     std::ofstream file(filePath, std::ofstream::binary);
     if (file.good()) {
         file.write(rcast<const char*>(&cDDSFileSignature), sizeof(cDDSFileSignature));
@@ -330,8 +359,7 @@ bool MetroTexture::SaveAsDDS(const fs::path& filePath) {
     return result;
 }
 
-//#TODO: also mips ?
-bool MetroTexture::SaveAsLegacyDDS(const fs::path& filePath) {
+bool MetroTexture::SaveAsLegacyDDS(const fs::path& filePath, const bool withMips) {
     bool result = false;
 
     //#TODO: add support!
@@ -339,16 +367,39 @@ bool MetroTexture::SaveAsLegacyDDS(const fs::path& filePath) {
         return false;
     }
 
+    const size_t numMips = withMips ? std::max<size_t>(1, mNumMips) : 1;
+    if (mData.size() < CalcCompressedSize(mFormat, mWidth, mHeight, numMips)) {
+        return false;
+    }
+
+    // re-compress every mip to BC3, mips smaller than 4x4 still occupy a whole block
+    BytesArray bc3Blocks(DDS_GetCompressedSizeBC7(mWidth, mHeight, numMips));
+    BytesArray rgbaPixels;
+
+    const uint8_t* srcBlocks = mData.data();
+    uint8_t* dstBlocks = bc3Blocks.data();
+    size_t width = mWidth, height = mHeight;
+    for (size_t mip = 0; mip < numMips; ++mip) {
+        const size_t blockWidth = std::max<size_t>(4, width);
+        const size_t blockHeight = std::max<size_t>(4, height);
+
+        rgbaPixels.resize(blockWidth * blockHeight * 4);
+        if (!this->DecompressLevel(srcBlocks, rgbaPixels.data(), blockWidth, blockHeight)) {
+            return false;
+        }
+        DDS_CompressBC3(rgbaPixels.data(), dstBlocks, blockWidth, blockHeight);
+
+        srcBlocks += CalcCompressedSize(mFormat, blockWidth, blockHeight, 1);
+        dstBlocks += DDS_GetCompressedSizeBC7(blockWidth, blockHeight, 1);
+
+        width = std::max<size_t>(1, width / 2);
+        height = std::max<size_t>(1, height / 2);
+    }
+
     std::ofstream file(filePath, std::ofstream::binary);
     if (file.good()) {
         DDSURFACEDESC2 ddsHdr;
-        DDS_MakeDX9Header(ddsHdr, mWidth, mHeight, 1);
-
-        BytesArray rgbaPixels;
-        this->GetRGBA(rgbaPixels);
-
-        BytesArray bc3Blocks(DDS_GetCompressedSizeBC7(mWidth, mHeight, 1));
-        DDS_CompressBC3(rgbaPixels.data(), bc3Blocks.data(), mWidth, mHeight);
+        DDS_MakeDX9Header(ddsHdr, mWidth, mHeight, numMips);
 
         file.write(rcast<const char*>(&cDDSFileSignature), sizeof(cDDSFileSignature));
         file.write(rcast<const char*>(&ddsHdr), sizeof(ddsHdr));
@@ -561,21 +612,8 @@ bool MetroTexture::GetRGBA(BytesArray& imagePixels) const {
     bool result = false;
 
     if (!mData.empty()) {
-        //#TODO: add support for other formats!
-        if (mFormat == PixelFormat::BC7) {
-            imagePixels.resize(mWidth * mHeight * 4);
-            DDS_DecompressBC7(mData.data(), imagePixels.data(), mWidth, mHeight);
-            result = true;
-        } else if (mFormat == PixelFormat::BC3) {
-            imagePixels.resize(mWidth * mHeight * 4);
-            DDS_DecompressBC3(mData.data(), imagePixels.data(), mWidth, mHeight);
-            result = true;
-        } else if (mFormat == PixelFormat::BC1) {
-            imagePixels.resize(mWidth * mHeight * 4);
-            memset(imagePixels.data(), 255, imagePixels.size());
-            DDS_DecompressBC1(mData.data(), imagePixels.data(), mWidth, mHeight, 4);
-            result = true;
-        }
+        imagePixels.resize(mWidth * mHeight * 4);
+        result = this->DecompressLevel(mData.data(), imagePixels.data(), mWidth, mHeight);
     }
 
     return result;
@@ -595,6 +633,76 @@ bool MetroTexture::GetBGRA(BytesArray& imagePixels) const {
 
 const uint8_t* MetroTexture::GetRawData() const {
     return mData.data();
+}
+
+bool MetroTexture::AppendLowerMips(const MyHandle file, const size_t dimension, const PixelFormat formatHint) {
+    const MetroFileSystem& mfs = MetroFileSystem::Get();
+
+    const MyHandle folder = mfs.GetParentFolder(file);
+    if (folder == kInvalidHandle) {
+        return false;
+    }
+
+    // drop anything beyond the declared mips (crunched files might carry extra levels)
+    const size_t topSize = CalcCompressedSize(mFormat, mWidth, mHeight, mNumMips);
+    if (topSize == 0 || mData.size() < topSize) {
+        return false;
+    }
+    mData.resize(topSize);
+
+    const CharString& fileName = mfs.GetName(file);
+    const CharString baseName = fileName.substr(0, fileName.find_last_of('.'));
+
+    for (size_t lowerDim = dimension / 2; lowerDim >= 512; lowerDim /= 2) {
+        const CharString lowerName = baseName + '.' + std::to_string(lowerDim);
+        MyHandle lowerFile = mfs.FindFile(lowerName, folder);
+        if (lowerFile == kInvalidHandle) {
+            lowerFile = mfs.FindFile(lowerName + 'c', folder);
+        }
+        if (lowerFile == kInvalidHandle) {
+            break;
+        }
+
+        MemStream lowerStream = mfs.OpenFileStream(lowerFile);
+        if (!lowerStream) {
+            break;
+        }
+
+        MetroTexture lower;
+        lower.mFormat = formatHint;
+        if (!lower.LoadFromData(lowerStream, lowerFile) || lower.mFormat != mFormat || lower.mWidth != lowerDim || lower.mHeight != lowerDim) {
+            break;
+        }
+
+        const size_t lowerSize = CalcCompressedSize(lower.mFormat, lower.mWidth, lower.mHeight, lower.mNumMips);
+        if (lower.mData.size() < lowerSize) {
+            break;
+        }
+
+        mData.insert(mData.end(), lower.mData.begin(), lower.mData.begin() + lowerSize);
+        mNumMips += lower.mNumMips;
+    }
+
+    return true;
+}
+
+bool MetroTexture::DecompressLevel(const uint8_t* blocks, uint8_t* rgbaPixels, const size_t width, const size_t height) const {
+    bool result = false;
+
+    //#TODO: add support for other formats!
+    if (mFormat == PixelFormat::BC7) {
+        DDS_DecompressBC7(blocks, rgbaPixels, width, height);
+        result = true;
+    } else if (mFormat == PixelFormat::BC3) {
+        DDS_DecompressBC3(blocks, rgbaPixels, width, height);
+        result = true;
+    } else if (mFormat == PixelFormat::BC1) {
+        memset(rgbaPixels, 255, width * height * 4);
+        DDS_DecompressBC1(blocks, rgbaPixels, width, height, 4);
+        result = true;
+    }
+
+    return result;
 }
 
 bool MetroTexture::DecrunchTexture(const uint8_t* data, const size_t dataLength) {

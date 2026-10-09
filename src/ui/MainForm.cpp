@@ -582,6 +582,26 @@ namespace MetroEX {
         }
     }
 
+    void MainForm::saveAsDDSAllMipsToolStripMenuItem_Click(System::Object^, System::EventArgs^) {
+        mExtractionCtx->txSaveAsDds = true;
+        mExtractionCtx->txUseBC3 = false;
+        mExtractionCtx->txWithAllMips = true;
+
+        if (!this->ExtractTexture(*mExtractionCtx, fs::path())) {
+            MetroEX::ShowErrorMessageBox(this, L"Failed to extract texture!");
+        }
+    }
+
+    void MainForm::saveAsLegacyDDSAllMipsToolStripMenuItem_Click(System::Object^, System::EventArgs^) {
+        mExtractionCtx->txSaveAsDds = true;
+        mExtractionCtx->txUseBC3 = true;
+        mExtractionCtx->txWithAllMips = true;
+
+        if (!this->ExtractTexture(*mExtractionCtx, fs::path())) {
+            MetroEX::ShowErrorMessageBox(this, L"Failed to extract texture!");
+        }
+    }
+
     void MainForm::saveAsTGAToolStripMenuItem_Click(System::Object^, System::EventArgs^) {
         mExtractionCtx->txSaveAsTga = true;
 
@@ -1179,8 +1199,14 @@ namespace MetroEX {
         mExtractionCtx->mdlExcludeCollision = s.extraction.modelExcludeCollision;
         mExtractionCtx->mdlSaveLods = s.extraction.modelSaveLods;
         // textures
-        mExtractionCtx->txSaveAsDds = (s.extraction.textureFormat == MEXSettings::Extraction::TexFormat::Dds || s.extraction.textureFormat == MEXSettings::Extraction::TexFormat::LegacyDds);
-        mExtractionCtx->txUseBC3 = (s.extraction.textureFormat == MEXSettings::Extraction::TexFormat::LegacyDds);
+        mExtractionCtx->txSaveAsDds = (s.extraction.textureFormat == MEXSettings::Extraction::TexFormat::Dds ||
+                                       s.extraction.textureFormat == MEXSettings::Extraction::TexFormat::LegacyDds ||
+                                       s.extraction.textureFormat == MEXSettings::Extraction::TexFormat::DdsAllMips ||
+                                       s.extraction.textureFormat == MEXSettings::Extraction::TexFormat::LegacyDdsAllMips);
+        mExtractionCtx->txUseBC3 = (s.extraction.textureFormat == MEXSettings::Extraction::TexFormat::LegacyDds ||
+                                    s.extraction.textureFormat == MEXSettings::Extraction::TexFormat::LegacyDdsAllMips);
+        mExtractionCtx->txWithAllMips = (s.extraction.textureFormat == MEXSettings::Extraction::TexFormat::DdsAllMips ||
+                                         s.extraction.textureFormat == MEXSettings::Extraction::TexFormat::LegacyDdsAllMips);
         mExtractionCtx->txSaveAsTga = (s.extraction.textureFormat == MEXSettings::Extraction::TexFormat::Tga);
         mExtractionCtx->txSaveAsPng = (s.extraction.textureFormat == MEXSettings::Extraction::TexFormat::Png);
         // sounds
@@ -1370,10 +1396,10 @@ namespace MetroEX {
             MemStream stream = MetroFileSystem::Get().OpenFileStream(ctx.file);
             if (stream) {
                 MetroTexture texture;
-                if (texture.LoadFromData(stream, ctx.file)) {
+                if (texture.LoadFromData(stream, ctx.file, ctx.txSaveAsDds && ctx.txWithAllMips)) {
                     if (ctx.txSaveAsDds) {
                         if (ctx.txUseBC3) {
-                            result = texture.SaveAsLegacyDDS(resultPath);
+                            result = texture.SaveAsLegacyDDS(resultPath, ctx.txWithAllMips);
                         } else {
                             result = texture.SaveAsDDS(resultPath);
                         }

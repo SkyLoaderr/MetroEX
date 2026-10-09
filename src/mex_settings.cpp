@@ -10,7 +10,9 @@ static const CharString sTexFormatNames[] = {
     "Dds",
     "LegacyDds",
     "Tga",
-    "Png"
+    "Png",
+    "DdsAllMips",
+    "LegacyDdsAllMips"
 };
 static const CharString sSndFormatNames[] = {
     "Ogg",

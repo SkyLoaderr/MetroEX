@@ -47,6 +47,8 @@ namespace MetroEX {
     private: System::Windows::Forms::RadioButton^  radioTexAsPNG;
     private: System::Windows::Forms::RadioButton^  radioTexAsTGA;
     private: System::Windows::Forms::RadioButton^  radioTexAsLegacyDDS;
+    private: System::Windows::Forms::RadioButton^  radioTexAsDDSAllMips;
+    private: System::Windows::Forms::RadioButton^  radioTexAsLegacyDDSAllMips;
     private: System::Windows::Forms::RadioButton^  radioTexAsDDS;
     private: System::Windows::Forms::CheckBox^  chkExportAskEveryTime;
     private: System::Windows::Forms::CheckBox^  chkMdlExcludeCollision;
@@ -91,6 +93,8 @@ namespace MetroEX {
             this->radioTexAsPNG = (gcnew System::Windows::Forms::RadioButton());
             this->radioTexAsTGA = (gcnew System::Windows::Forms::RadioButton());
             this->radioTexAsLegacyDDS = (gcnew System::Windows::Forms::RadioButton());
+            this->radioTexAsDDSAllMips = (gcnew System::Windows::Forms::RadioButton());
+            this->radioTexAsLegacyDDSAllMips = (gcnew System::Windows::Forms::RadioButton());
             this->radioTexAsDDS = (gcnew System::Windows::Forms::RadioButton());
             this->panel1 = (gcnew System::Windows::Forms::Panel());
             this->btnOK = (gcnew System::Windows::Forms::Button());
@@ -297,6 +301,8 @@ namespace MetroEX {
             // 
             // groupBox1
             // 
+            this->groupBox1->Controls->Add(this->radioTexAsLegacyDDSAllMips);
+            this->groupBox1->Controls->Add(this->radioTexAsDDSAllMips);
             this->groupBox1->Controls->Add(this->radioTexAsPNG);
             this->groupBox1->Controls->Add(this->radioTexAsTGA);
             this->groupBox1->Controls->Add(this->radioTexAsLegacyDDS);
@@ -337,6 +343,26 @@ namespace MetroEX {
             this->radioTexAsLegacyDDS->TabIndex = 1;
             this->radioTexAsLegacyDDS->Text = L"Export as legacy DDS";
             this->radioTexAsLegacyDDS->UseVisualStyleBackColor = true;
+            //
+            // radioTexAsDDSAllMips
+            //
+            this->radioTexAsDDSAllMips->AutoSize = true;
+            this->radioTexAsDDSAllMips->Location = System::Drawing::Point(242, 20);
+            this->radioTexAsDDSAllMips->Name = L"radioTexAsDDSAllMips";
+            this->radioTexAsDDSAllMips->Size = System::Drawing::Size(147, 17);
+            this->radioTexAsDDSAllMips->TabIndex = 4;
+            this->radioTexAsDDSAllMips->Text = L"Export as DDS (all mips)";
+            this->radioTexAsDDSAllMips->UseVisualStyleBackColor = true;
+            //
+            // radioTexAsLegacyDDSAllMips
+            //
+            this->radioTexAsLegacyDDSAllMips->AutoSize = true;
+            this->radioTexAsLegacyDDSAllMips->Location = System::Drawing::Point(242, 44);
+            this->radioTexAsLegacyDDSAllMips->Name = L"radioTexAsLegacyDDSAllMips";
+            this->radioTexAsLegacyDDSAllMips->Size = System::Drawing::Size(181, 17);
+            this->radioTexAsLegacyDDSAllMips->TabIndex = 5;
+            this->radioTexAsLegacyDDSAllMips->Text = L"Export as legacy DDS (all mips)";
+            this->radioTexAsLegacyDDSAllMips->UseVisualStyleBackColor = true;
             // 
             // radioTexAsDDS
             // 

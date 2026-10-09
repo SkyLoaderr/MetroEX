@@ -35,11 +35,11 @@ public:
     MetroTexture();
     ~MetroTexture();
 
-    bool            LoadFromData(MemStream& stream, const MyHandle file);
+    bool            LoadFromData(MemStream& stream, const MyHandle file, const bool withAllMips = false);
     bool            LoadFromFile(const fs::path& fileName);
 
     bool            SaveAsDDS(const fs::path& filePath);
-    bool            SaveAsLegacyDDS(const fs::path& filePath);
+    bool            SaveAsLegacyDDS(const fs::path& filePath, const bool withMips = false);
     bool            SaveAsTGA(const fs::path& filePath);
     bool            SaveAsPNG(const fs::path& filePath);
     bool            SaveAsMetroTexture(const fs::path& filePath);
@@ -58,6 +58,8 @@ public:
 
 private:
     bool            DecrunchTexture(const uint8_t* data, const size_t dataLength);
+    bool            AppendLowerMips(const MyHandle file, const size_t dimension, const PixelFormat formatHint);
+    bool            DecompressLevel(const uint8_t* blocks, uint8_t* rgbaPixels, const size_t width, const size_t height) const;
 
 private:
     BytesArray      mData;
