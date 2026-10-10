@@ -23,7 +23,7 @@ public:
     ~VFXReader();
 
 public:
-    bool                        LoadFromFile(const fs::path& filePath);
+    bool                        LoadFromFile(const fs::path& filePath, const VFXReader* baseVfx = nullptr);
     bool                        SaveToFile(const fs::path& filePath) const;
     void                        Close();
 
@@ -51,6 +51,7 @@ public:
 
 private:
     void                        ReadFileDescription(MetroFile& mf, MemStream& stream, const bool isDuplicate = false);
+    void                        LoadBasePackages(const fs::path& contentVfxPath);
 
 private:
     size_t                      mVersion;
@@ -61,6 +62,7 @@ private:
     fs::path                    mBasePath;
     fs::path                    mAbsolutePath;
     MyArray<Package>            mPaks;
+    MyArray<Package>            mBasePaks;
     MyArray<MetroFile>          mFiles;
     MyArray<size_t>             mFolders;
     MyArray<MetroFile>          mDuplicates;

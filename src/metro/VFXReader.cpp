@@ -18,7 +18,7 @@ VFXReader::~VFXReader() {
 
 }
 
-bool VFXReader::LoadFromFile(const fs::path& filePath) {
+bool VFXReader::LoadFromFile(const fs::path& filePath, const VFXReader* baseVfx) {
     bool result = false;
 
     this->Close();
@@ -103,6 +103,19 @@ bool VFXReader::LoadFromFile(const fs::path& filePath) {
             mFileName = filePath.filename().string();
             mAbsolutePath = fs::absolute(filePath);
             result = true;
+
+            //#NOTE: Exodus 2019 patches keep unchanged files in the game's own packages,
+            //       for such files pakIdx is an index into the package list of content.vfx
+            if (mVersion >= kVFXVersionExodus) {
+                const bool hasBaseFiles = std::any_of(mFiles.begin(), mFiles.end(), [](const MetroFile& mf) {
+                    return mf.IsFile() && TestBit<size_t>(mf.flags, MetroFile::Flag_BasePackage);
+                });
+                if (hasBaseFiles && baseVfx) {
+                    mBasePaks = baseVfx->GetAllPacks();
+                } else if (hasBaseFiles) {
+                    this->LoadBasePackages(mBasePath / "content.vfx");
+                }
+            }
 
             LogPrint(LogLevel::Info, "vfx loaded successfully");
         } else {
@@ -197,6 +210,7 @@ bool VFXReader::SaveToFile(const fs::path& filePath) const {
 
 void VFXReader::Close() {
     mPaks.resize(0);
+    mBasePaks.resize(0);
     mFiles.resize(0);
     mFolders.resize(0);
     mDuplicates.resize(0);
@@ -214,7 +228,13 @@ MemStream VFXReader::ExtractFile(const size_t fileIdx, const size_t subOffset, c
     MemStream result;
 
     const MetroFile& mf = mFiles[fileIdx];
-    const Package& pak = mPaks[mf.pakIdx];
+    const bool inBasePackage = (mVersion >= kVFXVersionExodus) && TestBit<size_t>(mf.flags, MetroFile::Flag_BasePackage);
+    const MyArray<Package>& packages = inBasePackage ? mBasePaks : mPaks;
+    if (mf.pakIdx >= packages.size()) {
+        LogPrintF(LogLevel::Error, "file %s refers to a missing package %zu", mf.name.c_str(), mf.pakIdx);
+        return result;
+    }
+    const Package& pak = packages[mf.pakIdx];
 
     fs::path pakPath = mBasePath / pak.name;
     std::ifstream file(pakPath, std::ifstream::binary);
@@ -296,6 +316,20 @@ void VFXReader::AppendFolder(const MetroFile& folder) {
     MetroFile& mf = mFiles.back();
     mf.firstFile = firstIdx;
     mf.numFiles = 0;
+}
+
+void VFXReader::LoadBasePackages(const fs::path& contentVfxPath) {
+    if (contentVfxPath == mAbsolutePath || fs::path(mFileName) == contentVfxPath.filename()) {
+        return;
+    }
+
+    VFXReader content;
+    if (content.LoadFromFile(contentVfxPath)) {
+        mBasePaks = content.GetAllPacks();
+        LogPrintF(LogLevel::Info, "%zu packages of content.vfx are available for this patch", mBasePaks.size());
+    } else {
+        LogPrint(LogLevel::Warning, "content.vfx not found, files stored in the game packages can't be extracted");
+    }
 }
 
 static CharString ReadEncryptedFileName(MemStream& stream) {

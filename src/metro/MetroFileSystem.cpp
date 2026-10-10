@@ -23,7 +23,8 @@ static const CharString sVFXList[] = {
     "patch_01_shared.vfx",
     "patch_01.vfx",
     "patch_02.vfx",
-    "patch_03.vfx"
+    "patch_03.vfx",
+    "patch_04.vfx"
 };
 
 
@@ -363,12 +364,30 @@ bool MetroFileSystem::AddVFX(const fs::path& vfxPath) {
         LogPrint(LogLevel::Warning, "Such vfx was already added to FS, ignoring.");
     } else {
         VFXReader* vfxReader = new VFXReader();
-        if (vfxReader->LoadFromFile(vfxPath)) {
+        const VFXReader* contentVfx = mLoadedVFX.empty() ? nullptr : mLoadedVFX.front();   // content.vfx when the whole game is loaded
+        if (vfxReader->LoadFromFile(vfxPath, contentVfx)) {
             mCurrentVfxIdx = mLoadedVFX.size();
             mGameVersion = vfxReader->GetVersion();
 
             const MetroFile& rootDir = vfxReader->GetRootFolder();
             this->MergeFolderRecursive(this->GetRootFolder(), rootDir, *vfxReader);
+
+            //#NOTE: patches may list folders that nothing references as a child (Exodus 2019 patch.vfx0, Last Light),
+            //       these are named by their full path ("content\sounds") and the engine links them to the game folders
+            const MyArray<MetroFile>& files = vfxReader->GetAllFiles();
+            MyArray<bool> referenced(files.size(), false);
+            for (const size_t folderIdx : vfxReader->GetAllFolders()) {
+                for (const size_t child : files[folderIdx]) {
+                    if (child < referenced.size()) {
+                        referenced[child] = true;
+                    }
+                }
+            }
+            for (const size_t folderIdx : vfxReader->GetAllFolders()) {
+                if (folderIdx != rootDir.idx && !referenced[folderIdx]) {
+                    this->MergeFolderRecursive(this->GetRootFolder(), files[folderIdx], *vfxReader);
+                }
+            }
 
             mLoadedVFX.push_back(vfxReader);
             result = true;
@@ -430,7 +449,14 @@ MyHandle MetroFileSystem::AddEntryFolder(const MyHandle parentEntry, const HashS
 MyHandle MetroFileSystem::AddEntryFile(const MyHandle parentEntry, const MetroFile& file) {
     MyHandle result = this->FindChild(parentEntry, file.name);
 
-    if (result == kInvalidHandle) {
+    if (result != kInvalidHandle) {
+        //#NOTE: archives are added in the game's load order, a patch replaces the file of the archives loaded before it
+        MetroFSEntry& existing = mEntries[result];
+        if (existing.fileIdx != kInvalidValue) {
+            existing.vfxIdx = mCurrentVfxIdx;
+            existing.fileIdx = file.idx;
+        }
+    } else {
         const size_t newIdx = mEntries.size();
 
         MetroFSEntry newEntry = {

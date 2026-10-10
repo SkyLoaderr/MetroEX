@@ -14,8 +14,9 @@ struct MetroGuid {  // 16 bytes
 struct MetroFile {
 public:
     enum : size_t {
-        Flag_Unknown4   = 4,    // patch folders have this one
-        Flag_Folder     = 8,
+        Flag_Unknown4       = 4,    // patch folders have this one
+        Flag_Folder         = 8,
+        Flag_BasePackage    = 16,   // the file is stored in a package of content.vfx
     };
 
 public:
